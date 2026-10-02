@@ -1,0 +1,104 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../data/models/design.dart';
+import '../../../customers/data/models/customer.dart';
+import '../../data/repositories/design_repository.dart';
+import '../../data/repositories/design_repository_impl.dart';
+import '../../../customers/data/repositories/customer_repository.dart';
+import '../../../customers/data/repositories/customer_repository_impl.dart';
+import '../../../../core/database/database_helper.dart';
+
+// ---------------------------------------------------------------------------
+// Repository providers
+// ---------------------------------------------------------------------------
+
+final designRepositoryProvider = Provider<DesignRepository>((ref) {
+  return DesignRepositoryImpl(DatabaseHelper.instance);
+});
+
+final customerRepositoryProvider = Provider<CustomerRepository>((ref) {
+  return CustomerRepositoryImpl(DatabaseHelper.instance);
+});
+
+// ---------------------------------------------------------------------------
+// Customers for dropdown
+// ---------------------------------------------------------------------------
+
+final customersForDropdownProvider = FutureProvider<List<Customer>>((ref) async {
+  final repo = ref.read(customerRepositoryProvider);
+  return repo.getAll();
+});
+
+// ---------------------------------------------------------------------------
+// Designs list provider (AsyncNotifier)
+// ---------------------------------------------------------------------------
+
+class DesignsNotifier extends AsyncNotifier<List<Design>> {
+  @override
+  Future<List<Design>> build() => _fetchAll();
+
+  Future<List<Design>> _fetchAll() {
+    final repo = ref.read(designRepositoryProvider);
+    return repo.getAll();
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(_fetchAll);
+  }
+
+  Future<int?> add(Design design) async {
+    final repo = ref.read(designRepositoryProvider);
+    final result = await AsyncValue.guard(() => repo.insert(design));
+    result.whenOrNull(
+      data: (id) {
+        ref.invalidate(designByIdProvider(id));
+        refresh();
+      },
+    );
+    return result.valueOrNull;
+  }
+
+  Future<int?> updateDesign(Design design) async {
+    final repo = ref.read(designRepositoryProvider);
+    final result = await AsyncValue.guard(() => repo.update(design));
+    result.whenOrNull(
+      data: (_) {
+        if (design.id != null) {
+          ref.invalidate(designByIdProvider(design.id!));
+        }
+        refresh();
+      },
+    );
+    return result.valueOrNull;
+  }
+
+  Future<int?> deleteDesign(int id) async {
+    final repo = ref.read(designRepositoryProvider);
+    final result = await AsyncValue.guard(() => repo.delete(id));
+    result.whenOrNull(
+      data: (_) {
+        ref.invalidate(designByIdProvider(id));
+        refresh();
+      },
+    );
+    return result.valueOrNull;
+  }
+}
+
+final designsListProvider =
+    AsyncNotifierProvider<DesignsNotifier, List<Design>>(
+      () => DesignsNotifier(),
+    );
+
+// ---------------------------------------------------------------------------
+// Single design by id (family)
+// ---------------------------------------------------------------------------
+
+final designByIdProvider = FutureProvider.family<Design?, int>((
+  ref,
+  id,
+) async {
+  final repo = ref.read(designRepositoryProvider);
+  return repo.getById(id);
+});

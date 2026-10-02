@@ -1,0 +1,61 @@
+name: solar_pro
+description: A Solar Energy Project Management Application.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State Management
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # Database
+  sqflite: ^2.4.2
+  sqflite_common_ffi: ^2.3.4
+  sqflite_common_ffi_web: ^0.4.0
+  path: ^1.9.1
+  path_provider: ^2.1.5
+
+  # PDF Generation
+  pdf: ^3.11.2
+  printing: ^5.13.5
+
+  # Archive for OOXML
+  archive: ^3.6.1
+
+  # Location
+  geolocator: ^14.0.0
+  geocoding: ^3.0.0
+
+  # HTTP & Utilities
+  dio: ^5.7.0
+  intl: ^0.20.2
+
+  # Firebase (optional)
+  firebase_core: ^3.12.0
+  firebase_auth: ^5.5.0
+  cloud_firestore: ^5.5.0
+
+  # Shared Preferences
+  shared_preferences: ^2.3.5
+
+  # Fonts
+  google_fonts: ^6.2.1
+
+  # Icons
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  riverpod_generator: ^2.6.5
+  build_runner: ^2.4.14
+
+flutter:
+  uses-material-design: true
