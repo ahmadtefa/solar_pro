@@ -18,6 +18,10 @@ export interface ParsedEvent {
   rawName: string;
   issueNumber: number;
   title: string;
+  /** Issue/PR description. Kept separate from `body` so a comment-triggered run
+   * still sees the task text (e.g. a "do not modify files" instruction). */
+  issueBody: string;
+  /** For issue_comment events: the triggering comment; otherwise the issue body. */
   body: string;
   commentId?: number;
   author: string;
@@ -67,6 +71,7 @@ export function parseEvent(
   let type: EventType = "unknown";
   let issueNumber = 0;
   let title = "";
+  let issueBody = "";
   let body = "";
   let commentId: number | undefined;
   let author = "";
@@ -90,7 +95,8 @@ export function parseEvent(
   if (issue) {
     issueNumber = issue.number;
     title = issue.title ?? "";
-    body = issue.body ?? "";
+    issueBody = issue.body ?? "";
+    body = issueBody;
     author = issue.user?.login ?? "";
     authorAssociation = issue.author_association ?? "";
     isBot = author === "github-actions[bot]" || author.endsWith("[bot]");
@@ -115,6 +121,7 @@ export function parseEvent(
     rawName: name,
     issueNumber,
     title,
+    issueBody,
     body,
     commentId,
     author,

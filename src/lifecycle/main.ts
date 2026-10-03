@@ -439,7 +439,7 @@ async function main(config: IssueClawConfig): Promise<void> {
     if (!config.runtime.dryRun) {
       // Honour an explicit read-only request: stage only IssueClaw's own state
       // so the run cannot modify application code, whatever the model did.
-      const readOnly = detectReadOnlyRequest(`${event.title}\n${event.body}`);
+      const readOnly = detectReadOnlyRequest(`${event.title}\n${event.issueBody}\n${event.body}`);
       const scope = planCommitScope(await git.status(), readOnly);
       if (scope.restricted) {
         if (scope.skipped.length > 0) {
