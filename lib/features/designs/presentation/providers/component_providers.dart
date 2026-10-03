@@ -36,43 +36,29 @@ class ComponentsNotifier extends AsyncNotifier<List<Component>> {
   }
 
   Future<int?> add(Component component) async {
-    print('ADD: add() called with component = ${component.toMap()}');
     final repo = ref.read(componentRepositoryProvider);
-    final result = await AsyncValue.guard(() => repo.insert(component));
-    result.whenOrNull(
-      data: (id) {
-        ref.invalidate(componentByIdProvider(id));
-        refresh();
-      },
-    );
-    print('ADD: result = $result');
-    return result.valueOrNull;
+    final id = await repo.insert(component);
+    ref.invalidate(componentByIdProvider(id));
+    await refresh();
+    return id;
   }
 
   Future<int?> updateComponent(Component component) async {
     final repo = ref.read(componentRepositoryProvider);
-    final result = await AsyncValue.guard(() => repo.update(component));
-    result.whenOrNull(
-      data: (_) {
-        if (component.id != null) {
-          ref.invalidate(componentByIdProvider(component.id!));
-        }
-        refresh();
-      },
-    );
-    return result.valueOrNull;
+    final rows = await repo.update(component);
+    if (component.id != null) {
+      ref.invalidate(componentByIdProvider(component.id!));
+    }
+    await refresh();
+    return rows;
   }
 
   Future<int?> deleteComponent(int id) async {
     final repo = ref.read(componentRepositoryProvider);
-    final result = await AsyncValue.guard(() => repo.delete(id));
-    result.whenOrNull(
-      data: (_) {
-        ref.invalidate(componentByIdProvider(id));
-        refresh();
-      },
-    );
-    return result.valueOrNull;
+    final rows = await repo.delete(id);
+    ref.invalidate(componentByIdProvider(id));
+    await refresh();
+    return rows;
   }
 }
 

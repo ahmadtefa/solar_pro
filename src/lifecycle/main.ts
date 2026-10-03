@@ -295,8 +295,9 @@ async function main(config: IssueClawConfig): Promise<void> {
   const event = parseEvent();
   log.info("main: parsed event", { type: event.type, issue: event.issueNumber });
 
-  // Initialize memory
-  const memory = new MemoryStore(config.memory);
+  // Initialize memory with resolved provider + env secrets for automatic redaction
+  const secrets = collectSecrets(config.providers, process.env);
+  const memory = new MemoryStore(config.memory, secrets);
   memory.init();
   memory.appendAudit("agent_run_start", { issue: event.issueNumber, type: event.type });
 
@@ -435,6 +436,10 @@ async function main(config: IssueClawConfig): Promise<void> {
       log.info("main: mapping saved", { issue: event.issueNumber, session: result.sessionPath });
     }
 
+    // Always scrub all persisted session/state files before staging, committing,
+    // or uploading workflow artifacts.
+    memory.redactAllStateFiles(secrets);
+
     // Commit & push (unless dry-run)
     if (!config.runtime.dryRun) {
       // Honour an explicit read-only request: stage only IssueClaw's own state
@@ -472,7 +477,7 @@ async function main(config: IssueClawConfig): Promise<void> {
       let commentBody: string;
 
       if (result.success && result.response) {
-        commentBody = result.response;
+        commentBody = redactSecrets(result.response, secrets);
         // Truncate if too long, with notice
         if (commentBody.length > config.github.maxCommentLength) {
           const truncated = commentBody.slice(0, config.github.maxCommentLength - 200);

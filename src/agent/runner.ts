@@ -7,7 +7,7 @@
  * - Tracks session file for resume
  */
 
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { IssueClawConfig, ProviderConfig } from "../config.ts";
@@ -291,8 +291,9 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
   const failures: Array<{ provider: string; model: string; error: string; hasKey: boolean }> = [];
   let lastError: string | undefined;
   let lastSessionPath: string | null = null;
-  // Never let a credential reach a log line or the issue comment.
-  const secrets = collectSecrets(config.providers);
+  // Never let a credential reach a log line, session file, or the issue comment.
+  const secrets = collectSecrets(config.providers, process.env);
+  memory.setSecrets(secrets);
 
   for (const provider of providers) {
     const providerLabel = `${provider.type}/${provider.model}`;
@@ -484,7 +485,7 @@ async function runWithProvider(opts: ProviderRunOptions): Promise<AgentRunResult
 
   // Every error path below is scrubbed before it can reach a log or the issue
   // comment — provider errors sometimes echo the credential back.
-  const secrets = collectSecrets(config.providers);
+  const secrets = collectSecrets(config.providers, process.env);
   const scrub = (text: string | undefined): string | undefined =>
     text === undefined ? undefined : redactSecrets(text, secrets);
 
@@ -571,9 +572,12 @@ async function runWithProvider(opts: ProviderRunOptions): Promise<AgentRunResult
   // Run pi with timeout
   try {
     const result = await withTimeout(
-      invokePi(piArgs, providerEnv, attemptTimeoutMs),
+      invokePi(piArgs, providerEnv, attemptTimeoutMs, secrets),
       attemptTimeoutMs,
     );
+
+    // Scrub any session files pi wrote before persisting or returning their path.
+    memory.redactSessions(secrets);
 
     // ALWAYS find the latest session file — even on failure, pi creates one
     // and we want to save the mapping so the user can debug / resume later.
@@ -585,7 +589,7 @@ async function runWithProvider(opts: ProviderRunOptions): Promise<AgentRunResult
     if (!result.success) {
       return {
         success: false,
-        response: result.response,
+        response: scrub(result.response) ?? "",
         sessionPath, // preserve session path even on failure
         providerUsed: provider,
         error: scrub(result.error),
@@ -595,12 +599,14 @@ async function runWithProvider(opts: ProviderRunOptions): Promise<AgentRunResult
 
     return {
       success: true,
-      response: result.response,
+      response: scrub(result.response) ?? "",
       sessionPath,
       providerUsed: provider,
       durationMs: 0,
     };
   } catch (err) {
+    // Scrub any partial session files written before the error/timeout.
+    memory.redactSessions(secrets);
     // Even on exception, try to find the session file
     const sessionPath = memory.getLatestSession();
     return {
@@ -624,6 +630,7 @@ async function invokePi(
   args: string[],
   env: Record<string, string | undefined>,
   _timeoutMs: number,
+  secrets: string[] = [],
 ): Promise<PiResult> {
   // Merge provider env over the ambient env. An explicit `undefined` value
   // UNSETS the variable (spreading alone would leave the ambient value in
@@ -678,11 +685,24 @@ async function invokePi(
   ]);
   const exitCode = await proc.exited;
 
+  // Scrub raw log file in-place so uploaded workflow artifacts never contain secrets.
+  if (existsSync(rawLogPath)) {
+    try {
+      const raw = readFileSync(rawLogPath, "utf-8");
+      const redacted = redactSecrets(raw, secrets);
+      if (redacted !== raw) {
+        writeFileSync(rawLogPath, redacted, "utf-8");
+      }
+    } catch {
+      // ignore raw log scrub error
+    }
+  }
+
   if (exitCode !== 0) {
     return {
       success: false,
       response: "",
-      error: `pi exited with code ${exitCode}: ${stderr.slice(0, 500)}`,
+      error: redactSecrets(`pi exited with code ${exitCode}: ${stderr.slice(0, 500)}`, secrets),
     };
   }
 

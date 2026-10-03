@@ -106,7 +106,7 @@ class Component {
       'brand': brand,
       'model': model,
       'price': price,
-      'pricePerWatt': pricePerWatt,
+      'price_per_watt': pricePerWatt,
       'powerW': powerW,
       'vocV': vocV,
       'powerKw': powerKw,
@@ -123,7 +123,8 @@ class Component {
       brand: map['brand'] as String,
       model: map['model'] as String,
       price: (map['price'] as num?)?.toDouble() ?? 0,
-      pricePerWatt: (map['pricePerWatt'] as num?)?.toDouble(),
+      pricePerWatt:
+          ((map['price_per_watt'] ?? map['pricePerWatt']) as num?)?.toDouble(),
       powerW: map['powerW'] as int?,
       vocV: (map['vocV'] as num?)?.toDouble(),
       powerKw: (map['powerKw'] as num?)?.toDouble(),

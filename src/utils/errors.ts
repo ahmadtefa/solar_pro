@@ -351,17 +351,27 @@ export function providerErrorHint(info: ProviderErrorInfo, providerType: string)
 /** Well-known credential shapes (Google AI Studio keys, OpenAI, GitHub, Slack…). */
 const SECRET_PATTERNS: RegExp[] = [
   // Google AI Studio "auth" keys (AQ.…) and legacy "standard" keys (AIzaSy…).
-  /\bAQ\.[A-Za-z0-9_-]{8,}/g,
+  /\bAQ\.[A-Za-z0-9_.-]{8,}[A-Za-z0-9_-]/g,
   /\bAIza[0-9A-Za-z_-]{10,}/g,
   /\bsk-[A-Za-z0-9_-]{16,}/g,
   /\bsk-ant-[A-Za-z0-9_-]{16,}/g,
+  /\bsk-or-v1-[A-Za-z0-9_-]{16,}/g,
+  /\bgsk_[A-Za-z0-9_-]{16,}/g,
+  /\bcsk-[A-Za-z0-9_-]{16,}/g,
   /\bghp_[A-Za-z0-9]{20,}/g,
   /\bgho_[A-Za-z0-9]{20,}/g,
+  /\bghs_[A-Za-z0-9]{20,}/g,
+  /\bghu_[A-Za-z0-9]{20,}/g,
+  /\bghr_[A-Za-z0-9]{20,}/g,
   /\bgithub_pat_[A-Za-z0-9_]{20,}/g,
 ];
 
+const ENV_SECRET_NAME_RE =
+  /(?:^(?:GEMINI|GOOGLE|GROQ|CEREBRAS|OPENROUTER|ANTHROPIC|OPENAI)_API_KEY$|^(?:GITHUB_TOKEN|GH_TOKEN)$|(?:_API_KEY|_SECRET|_TOKEN|_PASSWORD)$)/i;
+
 /**
- * Redact secrets from arbitrary text before it is logged or posted publicly.
+ * Redact secrets from arbitrary text before it is logged, persisted to a
+ * session/state file, or posted publicly.
  *
  * @param text      text that may contain secrets
  * @param secrets   exact secret values to scrub (e.g. resolved API keys)
@@ -372,12 +382,27 @@ export function redactSecrets(text: string, secrets: Array<string | undefined> =
 
   // Exact values first (most reliable), then credential-shaped patterns.
   for (const secret of secrets) {
-    if (!secret || secret.length < 8) continue;
-    out = out.split(secret).join("***");
+    if (!secret) continue;
+    const trimmed = secret.trim();
+    if (secret.length >= 8) {
+      out = out.split(secret).join("***");
+    }
+    if (trimmed.length >= 8 && trimmed !== secret) {
+      out = out.split(trimmed).join("***");
+    }
   }
   for (const re of SECRET_PATTERNS) {
     out = out.replace(re, "***");
   }
+
+  // Env/header assignments for known secret names (e.g. GEMINI_API_KEY=..., "x-goog-api-key":"...")
+  out = out.replace(
+    /(\b(?:GEMINI_API_KEY|GOOGLE_API_KEY|GROQ_API_KEY|CEREBRAS_API_KEY|OPENROUTER_API_KEY|ANTHROPIC_API_KEY|OPENAI_API_KEY|GITHUB_TOKEN|GH_TOKEN|x-goog-api-key)\b\s*(?:=|"?:?\s*"?))([^\s"'`,;}\\]+)/gi,
+    (full, prefix: string, val: string) => {
+      if (val.startsWith("${") || val === "***" || val.length < 6) return full;
+      return `${prefix}***`;
+    },
+  );
 
   // Query-string credentials: `?key=…`, `api_key=…`, `access_token=…`.
   out = out.replace(/([?&](?:key|api_key|apikey|access_token)=)[^&\s"'`]+/gi, "$1***");
@@ -411,18 +436,40 @@ export function hasUsableSecret(secret: string | undefined): boolean {
   return Boolean(secret && secret.trim().length > 0 && !secret.includes("${"));
 }
 
-/** Collect every resolved credential in a config, for redaction purposes. */
+/**
+ * Collect every resolved credential in a config (and optionally ambient
+ * environment), for redaction purposes.
+ */
 export function collectSecrets(
-  providers: Array<{ apiKey?: string; headers?: Record<string, string> }>,
+  providers: Array<{ apiKey?: string; headers?: Record<string, string> }> = [],
+  env?: Record<string, string | undefined>,
 ): string[] {
-  const secrets: string[] = [];
+  const seen = new Set<string>();
+  const add = (val: string | undefined) => {
+    if (!val) return;
+    const trimmed = val.trim();
+    if (trimmed.length >= 8 && !trimmed.includes("${")) {
+      seen.add(val);
+      if (trimmed !== val) seen.add(trimmed);
+    }
+  };
+
   for (const p of providers) {
-    if (p.apiKey && !p.apiKey.includes("${")) secrets.push(p.apiKey);
+    add(p.apiKey);
     if (p.headers) {
       for (const v of Object.values(p.headers)) {
-        if (v && !v.includes("${")) secrets.push(v);
+        add(v);
       }
     }
   }
-  return secrets;
+
+  if (env) {
+    for (const [key, value] of Object.entries(env)) {
+      if (ENV_SECRET_NAME_RE.test(key)) {
+        add(value);
+      }
+    }
+  }
+
+  return Array.from(seen);
 }

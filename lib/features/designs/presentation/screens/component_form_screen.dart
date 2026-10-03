@@ -121,25 +121,17 @@ class _ComponentFormScreenState extends ConsumerState<ComponentFormScreen> {
   // ---------------------------------------------------------------------------
 
   Future<void> _save() async {
-    print("SAVE: _save() called");
-    print("SAVE: formKey = " + _formKey.toString());
-    print("SAVE: currentState = " + (_formKey.currentState?.toString() ?? "null"));
-    print("SAVE: validate = " + (_formKey.currentState?.validate().toString() ?? "null"));
     if (!_formKey.currentState!.validate()) return;
-    print("SAVE: brand = " + _brandController.text);
-    print("SAVE: model = " + _modelController.text);
-    print("SAVE: type = " + _selectedType);
-    print("SAVE: powerW = " + _powerWController.text);
-    print("SAVE: pricePerWatt = " + _pricePerWattController.text);
-    print("SAVE: about to call add()");
     setState(() => _isLoading = true);
 
     try {
       final panelNotifier = ref.read(panelsListProvider.notifier);
       final inverterNotifier = ref.read(invertersListProvider.notifier);
+      int? result;
 
       if (_isEditing) {
         final updated = widget.component!.copyWith(
+          type: _selectedType,
           brand: _brandController.text.trim(),
           model: _modelController.text.trim(),
           pricePerWatt: _isPanel
@@ -159,9 +151,9 @@ class _ComponentFormScreenState extends ConsumerState<ComponentFormScreen> {
               : null,
         );
         if (_isPanel) {
-          await panelNotifier.updateComponent(updated);
+          result = await panelNotifier.updateComponent(updated);
         } else {
-          await inverterNotifier.updateComponent(updated);
+          result = await inverterNotifier.updateComponent(updated);
         }
       } else {
         final newComponent = Component.create(
@@ -180,10 +172,19 @@ class _ComponentFormScreenState extends ConsumerState<ComponentFormScreen> {
               !_isPanel ? double.tryParse(_maxDcVoltageController.text) : null,
         );
         if (_isPanel) {
-          await panelNotifier.add(newComponent);
+          result = await panelNotifier.add(newComponent);
         } else {
-          await inverterNotifier.add(newComponent);
+          result = await inverterNotifier.add(newComponent);
         }
+      }
+
+      if (result == null || result <= 0) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('فشل الحفظ: لم يتم حفظ المكوّن')),
+          );
+        }
+        return;
       }
 
       if (mounted) Navigator.of(context).pop();

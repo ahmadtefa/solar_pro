@@ -5,6 +5,7 @@ class Design {
   final String systemType;
   final String customerType;
   final int? inverterId;
+  final int? panelId;
   final int panelCount;
   final int stringCount;
   final int panelsPerString;
@@ -18,6 +19,7 @@ class Design {
     required this.systemType,
     required this.customerType,
     this.inverterId,
+    this.panelId,
     this.panelCount = 0,
     this.stringCount = 0,
     this.panelsPerString = 0,
@@ -31,6 +33,7 @@ class Design {
     required String systemType,
     required String customerType,
     int? inverterId,
+    int? panelId,
     int panelCount = 0,
     int stringCount = 0,
     int panelsPerString = 0,
@@ -42,6 +45,7 @@ class Design {
       systemType: systemType,
       customerType: customerType,
       inverterId: inverterId,
+      panelId: panelId,
       panelCount: panelCount,
       stringCount: stringCount,
       panelsPerString: panelsPerString,
@@ -57,6 +61,7 @@ class Design {
     String? systemType,
     String? customerType,
     int? inverterId,
+    int? panelId,
     int? panelCount,
     int? stringCount,
     int? panelsPerString,
@@ -70,6 +75,7 @@ class Design {
       systemType: systemType ?? this.systemType,
       customerType: customerType ?? this.customerType,
       inverterId: inverterId ?? this.inverterId,
+      panelId: panelId ?? this.panelId,
       panelCount: panelCount ?? this.panelCount,
       stringCount: stringCount ?? this.stringCount,
       panelsPerString: panelsPerString ?? this.panelsPerString,
@@ -86,6 +92,7 @@ class Design {
       'systemType': systemType,
       'customerType': customerType,
       'inverterId': inverterId,
+      'panelId': panelId,
       'panelCount': panelCount,
       'stringCount': stringCount,
       'panelsPerString': panelsPerString,
@@ -102,6 +109,7 @@ class Design {
       systemType: map['systemType'] as String,
       customerType: map['customerType'] as String,
       inverterId: map['inverterId'] as int?,
+      panelId: map['panelId'] as int?,
       panelCount: map['panelCount'] as int? ?? 0,
       stringCount: map['stringCount'] as int? ?? 0,
       panelsPerString: map['panelsPerString'] as int? ?? 0,
@@ -125,6 +133,7 @@ class Design {
           systemType == other.systemType &&
           customerType == other.customerType &&
           inverterId == other.inverterId &&
+          panelId == other.panelId &&
           panelCount == other.panelCount &&
           stringCount == other.stringCount &&
           panelsPerString == other.panelsPerString &&
@@ -140,6 +149,7 @@ class Design {
       systemType,
       customerType,
       inverterId,
+      panelId,
       panelCount,
       stringCount,
       panelsPerString,
@@ -150,6 +160,6 @@ class Design {
 
   @override
   String toString() {
-    return 'Design(id: $id, customerId: $customerId, capacityKw: $capacityKw, systemType: $systemType, customerType: $customerType, inverterId: $inverterId, panelCount: $panelCount, stringCount: $stringCount, panelsPerString: $panelsPerString, notes: $notes, createdAt: $createdAt)';
+    return 'Design(id: $id, customerId: $customerId, capacityKw: $capacityKw, systemType: $systemType, customerType: $customerType, inverterId: $inverterId, panelId: $panelId, panelCount: $panelCount, stringCount: $stringCount, panelsPerString: $panelsPerString, notes: $notes, createdAt: $createdAt)';
   }
 }
