@@ -10,8 +10,10 @@
  * All files are committed to git so the agent has full history.
  */
 
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { MemoryConfig } from "../config.ts";
+import { collectSecrets, redactSecrets } from "../utils/errors.ts";
 import {
   appendLine,
   atomicWrite,
@@ -47,8 +49,12 @@ export class MemoryStore {
   private readonly personalityPath: string;
   private readonly userPath: string;
   private readonly auditPath: string;
+  private secrets: string[];
 
-  constructor(private config: MemoryConfig) {
+  constructor(
+    private config: MemoryConfig,
+    secrets: string[] = collectSecrets([], process.env),
+  ) {
     this.stateDir = config.stateDir;
     this.issuesDir = join(this.stateDir, "issues");
     this.sessionsDir = join(this.stateDir, "sessions");
@@ -56,6 +62,19 @@ export class MemoryStore {
     this.personalityPath = join(this.stateDir, config.personalityFile);
     this.userPath = join(this.stateDir, config.userFile);
     this.auditPath = join(this.stateDir, config.auditFile);
+    this.secrets = secrets;
+  }
+
+  /**
+   * Register resolved secrets so all state/session persistence scrubs them.
+   */
+  setSecrets(secrets: string[]): void {
+    const merged = new Set([...this.secrets, ...secrets]);
+    this.secrets = Array.from(merged);
+  }
+
+  private scrub(text: string, extraSecrets: string[] = []): string {
+    return redactSecrets(text, [...this.secrets, ...extraSecrets]);
   }
 
   /**
@@ -87,14 +106,15 @@ export class MemoryStore {
   }
 
   writeMemory(content: string): void {
-    atomicWrite(this.memoryPath, content);
+    atomicWrite(this.memoryPath, this.scrub(content));
   }
 
   appendMemory(entry: string): void {
+    const safeEntry = this.scrub(entry);
     const timestamp = new Date().toISOString().replace("T", " ").slice(0, 16);
-    const line = `- [${timestamp}] ${entry}`;
+    const line = `- [${timestamp}] ${safeEntry}`;
     appendLine(this.memoryPath, line);
-    log.debug("memory appended", { entry });
+    log.debug("memory appended", { entry: safeEntry });
   }
 
   // ---- Personality ----
@@ -104,7 +124,7 @@ export class MemoryStore {
   }
 
   writePersonality(content: string): void {
-    atomicWrite(this.personalityPath, content);
+    atomicWrite(this.personalityPath, this.scrub(content));
     log.debug("personality updated");
   }
 
@@ -115,7 +135,7 @@ export class MemoryStore {
   }
 
   writeUser(content: string): void {
-    atomicWrite(this.userPath, content);
+    atomicWrite(this.userPath, this.scrub(content));
     log.debug("user profile updated");
   }
 
@@ -131,7 +151,7 @@ export class MemoryStore {
       action,
       details,
     };
-    appendLine(this.auditPath, JSON.stringify(entry));
+    appendLine(this.auditPath, this.scrub(JSON.stringify(entry)));
     log.debug("audit entry", { action });
   }
 
@@ -143,6 +163,9 @@ export class MemoryStore {
   }
 
   saveMapping(mapping: IssueMapping): void {
+    if (mapping.sessionPath && existsSync(mapping.sessionPath)) {
+      this.redactSessionFile(mapping.sessionPath);
+    }
     const path = join(this.issuesDir, `${mapping.issueNumber}.json`);
     writeJson(path, mapping);
     log.debug("mapping saved", { issue: mapping.issueNumber, session: mapping.sessionPath });
@@ -166,6 +189,50 @@ export class MemoryStore {
 
   getSessionPath(filename: string): string {
     return join(this.sessionsDir, filename);
+  }
+
+  /**
+   * Redact secrets in a single session JSONL file in-place before it can be
+   * committed or uploaded as an artifact.
+   */
+  redactSessionFile(filePath: string, extraSecrets: string[] = []): boolean {
+    if (!filePath || !existsSync(filePath)) return false;
+    const raw = safeRead(filePath);
+    if (!raw) return false;
+    const redacted = this.scrub(raw, extraSecrets);
+    if (redacted !== raw) {
+      atomicWrite(filePath, redacted);
+      log.info("redacted secrets from session file", { filePath });
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Redact secrets across all `state/sessions/*.jsonl` files.
+   */
+  redactSessions(extraSecrets: string[] = []): number {
+    let modified = 0;
+    for (const file of this.listSessions()) {
+      if (this.redactSessionFile(file, extraSecrets)) {
+        modified++;
+      }
+    }
+    return modified;
+  }
+
+  /**
+   * Redact secrets across all persisted files in `state/` (sessions, memory,
+   * personality, user, audit).
+   */
+  redactAllStateFiles(extraSecrets: string[] = []): number {
+    let modified = this.redactSessions(extraSecrets);
+    for (const file of [this.memoryPath, this.personalityPath, this.userPath, this.auditPath]) {
+      if (this.redactSessionFile(file, extraSecrets)) {
+        modified++;
+      }
+    }
+    return modified;
   }
 
   /** Public accessor for sessions directory. */
