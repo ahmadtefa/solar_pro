@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide DatabaseException;
 
 import 'package:solar_pro/core/database/database_helper.dart';
 import 'package:solar_pro/core/errors/app_exception.dart';
@@ -147,6 +147,13 @@ class _FakeCustomerRepository implements CustomerRepository {
   @override
   Future<List<Customer>> search(String query) async => items;
 }
+
+Finder _listViewScrollable() => find
+    .descendant(
+      of: find.byType(ListView),
+      matching: find.byType(Scrollable),
+    )
+    .first;
 
 void main() {
   group('Component price_per_watt mapping', () {
@@ -374,7 +381,10 @@ void main() {
     });
 
     test('safe migration from v1 to v3 adds price_per_watt and panelId without losing data', () async {
-      final legacyDb = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+      final legacyDb = await databaseFactoryFfi.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
       await legacyDb.execute('''
         CREATE TABLE components (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -406,6 +416,30 @@ void main() {
         )
       ''');
 
+      await legacyDb.insert('components', {
+        'id': 1,
+        'type': 'panel',
+        'brand': 'JA Solar',
+        'model': '550W-V1',
+        'price': 0,
+        'powerW': 550,
+        'vocV': 49.5,
+        'createdAt': '2026-10-01T00:00:00.000Z',
+      });
+      await legacyDb.insert('designs', {
+        'id': 1,
+        'customerId': 1,
+        'capacityKw': 5.0,
+        'systemType': 'on_grid',
+        'customerType': 'residential',
+        'inverterId': 1,
+        'panelCount': 10,
+        'stringCount': 1,
+        'panelsPerString': 10,
+        'notes': 'تصميم قديم',
+        'createdAt': '2026-10-01T00:00:00.000Z',
+      });
+
       await DatabaseHelper.instance.upgradeDatabaseForTest(legacyDb, 1, 3);
       // Running upgrade again is idempotent
       await DatabaseHelper.instance.upgradeDatabaseForTest(legacyDb, 1, 3);
@@ -415,6 +449,14 @@ void main() {
 
       final designCols = await legacyDb.rawQuery('PRAGMA table_info(designs)');
       expect(designCols.any((c) => c['name'] == 'panelId'), isTrue);
+
+      final oldComponents = await legacyDb.query('components');
+      expect(oldComponents, hasLength(1));
+      expect(oldComponents.first['model'], '550W-V1');
+
+      final oldDesigns = await legacyDb.query('designs');
+      expect(oldDesigns, hasLength(1));
+      expect(oldDesigns.first['notes'], 'تصميم قديم');
 
       await legacyDb.close();
     });
@@ -463,8 +505,13 @@ void main() {
       await tester.enterText(fields.at(3), '550');
       await tester.enterText(fields.at(4), '49.8');
 
-      await tester.scrollUntilVisible(find.text('حفظ المكوّن'), 200);
-      await tester.tap(find.text('حفظ المكوّن'));
+      final saveButton = find.widgetWithText(FilledButton, 'حفظ المكوّن');
+      await tester.scrollUntilVisible(
+        saveButton,
+        200,
+        scrollable: _listViewScrollable(),
+      );
+      await tester.tap(saveButton);
       await tester.pumpAndSettle();
 
       expect(fakeRepo.items, hasLength(1));
@@ -494,8 +541,13 @@ void main() {
       await tester.enterText(fields.at(3), '550');
       await tester.enterText(fields.at(4), '49.8');
 
-      await tester.scrollUntilVisible(find.text('حفظ المكوّن'), 200);
-      await tester.tap(find.text('حفظ المكوّن'));
+      final saveButton = find.widgetWithText(FilledButton, 'حفظ المكوّن');
+      await tester.scrollUntilVisible(
+        saveButton,
+        200,
+        scrollable: _listViewScrollable(),
+      );
+      await tester.tap(saveButton);
       await tester.pumpAndSettle();
 
       // Screen must remain open and display the error message
@@ -567,10 +619,16 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(DesignFormScreen), findsOneWidget);
-      expect(find.text('تحديث'), findsOneWidget);
+      expect(find.text('تعديل التصميم'), findsOneWidget);
 
-      await tester.scrollUntilVisible(find.text('تحديث'), 200);
-      await tester.tap(find.text('تحديث'));
+      final updateButton = find.widgetWithText(FilledButton, 'تحديث');
+      await tester.scrollUntilVisible(
+        updateButton,
+        200,
+        scrollable: _listViewScrollable(),
+      );
+      expect(updateButton, findsOneWidget);
+      await tester.tap(updateButton);
       await tester.pumpAndSettle();
 
       expect(fakeDesignRepo.items.first.panelId, 1);
