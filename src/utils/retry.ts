@@ -3,6 +3,7 @@
  * Supports async functions and configurable retry conditions.
  */
 
+import { classifyProviderError, parseRetryDelayMs } from "./errors.ts";
 import { log } from "./log.ts";
 
 export interface RetryOptions<_T> {
@@ -22,12 +23,19 @@ export interface RetryOptions<_T> {
   onRetry?: (attempt: number, error: unknown, delayMs: number) => void;
   /** Timeout for each attempt in ms. */
   timeoutMs?: number;
+  /**
+   * Extra delay requested by the provider for this error (ms).
+   * When it returns a number, the retry waits at least that long — Gemini
+   * answers 429 with `Please retry in 43.8s` and ignoring that hint guarantees
+   * another 429. Falls back to `parseRetryDelayMs(error.message)`.
+   */
+  retryAfterMs?: (error: unknown) => number | undefined;
   /** Operation name for logging. */
   name?: string;
 }
 
 const DEFAULT_OPTIONS: Required<
-  Omit<RetryOptions<unknown>, "retryIf" | "onRetry" | "timeoutMs" | "name">
+  Omit<RetryOptions<unknown>, "retryIf" | "onRetry" | "timeoutMs" | "name" | "retryAfterMs">
 > = {
   maxAttempts: 3,
   initialDelayMs: 1000,
@@ -62,7 +70,10 @@ export async function retry<T>(fn: () => Promise<T>, options: RetryOptions<T> = 
         throw error;
       }
       const jitter = opts.jitter ? Math.random() * 0.5 * delay : 0;
-      const actualDelay = Math.min(delay + jitter, opts.maxDelayMs);
+      // Honour an explicit provider back-off hint (429 / Retry-After) when the
+      // computed exponential delay is shorter than what the provider asked for.
+      const requested = opts.retryAfterMs?.(error) ?? parseRetryDelayMs(errorMessage(error)) ?? 0;
+      const actualDelay = Math.min(Math.max(delay + jitter, requested), opts.maxDelayMs);
       log.warn(
         `retry: ${name} failed on attempt ${attempt}, retrying in ${Math.round(actualDelay)}ms`,
         { error: errorMessage(error), attempt, nextDelay: Math.round(actualDelay) },
@@ -101,15 +112,21 @@ export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 /**
  * Returns a retryable error predicate for network/HTTP errors.
+ *
+ * Delegates to the shared provider-error classifier so that Google's wording
+ * (`UNAVAILABLE`, `RESOURCE_EXHAUSTED`, `Please retry in 43.8s`) is handled the
+ * same way as OpenAI-style status codes. Authentication failures (401/403) and
+ * retired-model errors (404) are explicitly NOT retryable — retrying those just
+ * burns quota.
  */
 export function isRetryableHttpError(error: unknown): boolean {
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase();
-    if (msg.includes("rate limit") || msg.includes("429")) return true;
-    if (msg.includes("timeout") || msg.includes("etimedout")) return true;
-    if (msg.includes("econnreset") || msg.includes("econnrefused")) return true;
-    if (msg.includes("502") || msg.includes("503") || msg.includes("504")) return true;
-    if (msg.includes("network")) return true;
-  }
-  return false;
+  return classifyProviderError(error).retryable;
+}
+
+/**
+ * Back-off hint (ms) requested by the provider for the given error, if any.
+ * Exposed so callers can wire it into `retry({ retryAfterMs })`.
+ */
+export function retryAfterMsFor(error: unknown): number | undefined {
+  return classifyProviderError(error).retryAfterMs;
 }

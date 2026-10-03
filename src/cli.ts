@@ -23,9 +23,11 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { buildPrompt, runAgent } from "./agent/runner.ts";
-import { type IssueClawConfig, loadConfig } from "./config.ts";
+import { type IssueClawConfig, loadConfig, redactConfig } from "./config.ts";
 import { parseEvent } from "./github/events.ts";
 import { MemoryStore } from "./memory/store.ts";
+import { geminiModelWarnings } from "./providers/gemini.ts";
+import { describeCredential, hasUsableSecret } from "./utils/errors.ts";
 import { log } from "./utils/log.ts";
 
 const VERSION = "2.0.0";
@@ -163,7 +165,7 @@ async function cmdConfig(args: ParsedArgs): Promise<void> {
 
   switch (args.subcommand) {
     case "show":
-      console.log(JSON.stringify(config, null, 2));
+      console.log(JSON.stringify(redactConfig(config), null, 2));
       break;
 
     case "validate": {
@@ -461,6 +463,18 @@ async function cmdDoctor(_args: ParsedArgs): Promise<void> {
       console.log(`  ✗ ${provider.type}/${provider.model}: ${err}`);
     } else {
       console.log(`  ✓ ${provider.type}/${provider.model}${provider.default ? " (default)" : ""}`);
+    }
+    // Credential shape only — never the value.
+    console.log(
+      `      ${provider.type.toUpperCase()}_API_KEY: ${describeCredential(provider.apiKey)}`,
+    );
+    if (!hasUsableSecret(provider.apiKey)) {
+      console.log("      → provider will be skipped until the secret is configured");
+    }
+    if (provider.type === "gemini") {
+      for (const warning of geminiModelWarnings(provider.model)) {
+        console.log(`      ⚠️  ${warning}`);
+      }
     }
   }
 

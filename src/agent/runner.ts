@@ -15,8 +15,46 @@ import type { ParsedEvent } from "../github/events.ts";
 import type { MemoryStore } from "../memory/store.ts";
 import type { IssueMapping } from "../memory/store.ts";
 import { buildProviderArgs } from "../providers/index.ts";
+import { classifyProviderError, collectSecrets, redactSecrets } from "../utils/errors.ts";
 import { log } from "../utils/log.ts";
 import { errorMessage, isRetryableHttpError, retry, withTimeout } from "../utils/retry.ts";
+
+/**
+ * Retry budget for a single provider attempt when the failure is transient
+ * (Gemini 429 / 503, network resets), overridable via env for slow free tiers.
+ *
+ * WHY: pi's own auto-retry only runs in interactive and RPC modes — in
+ * `--print --mode json` (what CI uses) a single 429 or 503 aborts the run.
+ * The observed failures were two 503 UNAVAILABLEs followed by a 429
+ * `RESOURCE_EXHAUSTED`, all with zero retries.
+ */
+function maxTransientAttempts(): number {
+  const raw = Number(process.env.ISSUECLAW_MAX_TRANSIENT_ATTEMPTS ?? "3");
+  return Number.isFinite(raw) && raw >= 1 ? Math.min(raw, 8) : 3;
+}
+
+/**
+ * Decide whether a failed provider attempt should be retried.
+ *
+ * Only transient classifications (429 per-minute throttling, 5xx/UNAVAILABLE
+ * overloads, transport failures) are retried; rejected credentials (401/403)
+ * and retired model ids (404) fail immediately because retrying cannot help.
+ */
+export function shouldRetryProviderFailure(
+  error: unknown,
+  attempt: number,
+  maxAttempts: number,
+): boolean {
+  if (attempt >= maxAttempts) return false;
+  return classifyProviderError(error).retryable;
+}
+
+/** Base delay between transient retries (ms), exponential, capped. */
+function transientBackoffMs(attempt: number): number {
+  const base = Number(process.env.ISSUECLAW_RETRY_BASE_MS ?? "10000");
+  const safeBase = Number.isFinite(base) && base > 0 ? base : 10000;
+  return Math.min(safeBase * 2 ** (attempt - 1), 90000);
+}
 
 /**
  * Resolve the pi binary path. Prefers:
@@ -252,6 +290,8 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
   const failures: Array<{ provider: string; model: string; error: string; hasKey: boolean }> = [];
   let lastError: string | undefined;
   let lastSessionPath: string | null = null;
+  // Never let a credential reach a log line or the issue comment.
+  const secrets = collectSecrets(config.providers);
 
   for (const provider of providers) {
     const providerLabel = `${provider.type}/${provider.model}`;
@@ -276,48 +316,132 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
       continue;
     }
 
-    try {
-      const result = await runWithProvider({
-        provider,
-        config,
-        prompt,
-        memory,
-        existingMapping,
-        executable,
-      });
-      if (result.success) {
-        log.info("agent run succeeded", {
-          provider: providerLabel,
-          durationMs: Date.now() - startTime,
+    const maxAttempts = executable ? maxTransientAttempts() : 1;
+    // Keep the whole run (including retries) inside the configured agent
+    // timeout so the job never gets killed before it can report the failure.
+    const budgetMs = config.agent.timeoutMs;
+    // When an attempt fails after reaching the provider, pi has already written
+    // a session file. Resuming it keeps the tool calls/results so a retry does
+    // not pay for the whole prompt again.
+    let resume: IssueMapping | null | undefined = existingMapping;
+    let attemptTimeoutMs = Math.min(config.agent.timeoutMs, budgetMs);
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const result = await runWithProvider({
+          provider,
+          config,
+          prompt,
+          memory,
+          existingMapping: resume,
+          executable,
+          timeoutMs: attemptTimeoutMs,
         });
-        return { ...result, durationMs: Date.now() - startTime };
+
+        if (result.success) {
+          log.info("agent run succeeded", {
+            provider: providerLabel,
+            attempt,
+            durationMs: Date.now() - startTime,
+          });
+          return { ...result, durationMs: Date.now() - startTime };
+        }
+
+        lastError = result.error;
+        if (result.sessionPath) {
+          lastSessionPath = result.sessionPath;
+          const now = new Date().toISOString();
+          resume = resume
+            ? { ...resume, sessionPath: result.sessionPath, updatedAt: now }
+            : {
+                issueNumber: event.issueNumber,
+                sessionPath: result.sessionPath,
+                createdAt: now,
+                updatedAt: now,
+                turnCount: 0,
+              };
+        }
+
+        const info = classifyProviderError(result.error ?? "");
+        if (!shouldRetryProviderFailure(result.error, attempt, maxAttempts)) {
+          failures.push({
+            provider: provider.type,
+            model: provider.model,
+            error: result.error ?? "unknown error",
+            hasKey,
+          });
+          log.warn("provider failed, trying next", {
+            provider: provider.type,
+            model: provider.model,
+            kind: info.kind,
+            retryable: info.retryable,
+            error: redactSecrets(result.error ?? "", secrets),
+            hasKey,
+          });
+          break;
+        }
+
+        const waitMs = Math.min(info.retryAfterMs ?? transientBackoffMs(attempt), 90000);
+        const remainingMs = budgetMs - (Date.now() - startTime) - waitMs;
+        if (remainingMs < 30_000) {
+          failures.push({
+            provider: provider.type,
+            model: provider.model,
+            error: result.error ?? "unknown error",
+            hasKey,
+          });
+          log.warn("provider still failing but the time budget is exhausted", {
+            provider: providerLabel,
+            kind: info.kind,
+            attempt,
+            remainingMs,
+          });
+          break;
+        }
+        log.warn("provider transient failure, retrying same provider", {
+          provider: providerLabel,
+          kind: info.kind,
+          attempt,
+          maxAttempts,
+          waitMs,
+          remainingMs,
+          reason: redactSecrets(info.summary, secrets),
+        });
+        await sleep(waitMs);
+        attemptTimeoutMs = Math.max(remainingMs, 30_000);
+      } catch (err) {
+        lastError = errorMessage(err);
+        const info = classifyProviderError(err);
+        if (!info.retryable || attempt >= maxAttempts) {
+          failures.push({
+            provider: provider.type,
+            model: provider.model,
+            error: lastError,
+            hasKey,
+          });
+          log.warn("provider threw, trying next", {
+            provider: provider.type,
+            model: provider.model,
+            kind: info.kind,
+            error: redactSecrets(lastError, secrets),
+            hasKey,
+          });
+          break;
+        }
+        const waitMs = Math.min(info.retryAfterMs ?? transientBackoffMs(attempt), 90000);
+        const remainingMs = budgetMs - (Date.now() - startTime) - waitMs;
+        if (remainingMs < 30_000) break;
+        log.warn("provider threw a transient error, retrying", {
+          provider: providerLabel,
+          kind: info.kind,
+          attempt,
+          waitMs,
+          remainingMs,
+          error: redactSecrets(lastError, secrets),
+        });
+        await sleep(waitMs);
+        attemptTimeoutMs = Math.max(remainingMs, 30_000);
       }
-      lastError = result.error;
-      if (result.sessionPath) lastSessionPath = result.sessionPath;
-      failures.push({
-        provider: provider.type,
-        model: provider.model,
-        error: result.error ?? "unknown error",
-        hasKey,
-      });
-      log.warn("provider failed, trying next", {
-        provider: provider.type,
-        error: result.error,
-        hasKey,
-      });
-    } catch (err) {
-      lastError = errorMessage(err);
-      failures.push({
-        provider: provider.type,
-        model: provider.model,
-        error: lastError,
-        hasKey,
-      });
-      log.warn("provider threw, trying next", {
-        provider: provider.type,
-        error: lastError,
-        hasKey,
-      });
     }
   }
 
@@ -349,16 +473,25 @@ interface ProviderRunOptions {
   memory: MemoryStore;
   existingMapping?: IssueMapping | null;
   executable: boolean;
+  /** Timeout for this attempt (ms). Defaults to config.agent.timeoutMs. */
+  timeoutMs?: number;
 }
 
 async function runWithProvider(opts: ProviderRunOptions): Promise<AgentRunResult> {
   const { provider, config, prompt, memory, existingMapping, executable } = opts;
+  const attemptTimeoutMs = Math.max(opts.timeoutMs ?? config.agent.timeoutMs, 30_000);
+
+  // Every error path below is scrubbed before it can reach a log or the issue
+  // comment — provider errors sometimes echo the credential back.
+  const secrets = collectSecrets(config.providers);
+  const scrub = (text: string | undefined): string | undefined =>
+    text === undefined ? undefined : redactSecrets(text, secrets);
 
   // Validate provider config (skip in mock mode for easier local testing)
   if (executable) {
     const validation = validateProvider(provider);
     if (validation) {
-      return failure(validation);
+      return failure(redactSecrets(validation, secrets));
     }
   }
 
@@ -437,8 +570,8 @@ async function runWithProvider(opts: ProviderRunOptions): Promise<AgentRunResult
   // Run pi with timeout
   try {
     const result = await withTimeout(
-      invokePi(piArgs, providerEnv, config.agent.timeoutMs),
-      config.agent.timeoutMs,
+      invokePi(piArgs, providerEnv, attemptTimeoutMs),
+      attemptTimeoutMs,
     );
 
     // ALWAYS find the latest session file — even on failure, pi creates one
@@ -454,7 +587,7 @@ async function runWithProvider(opts: ProviderRunOptions): Promise<AgentRunResult
         response: result.response,
         sessionPath, // preserve session path even on failure
         providerUsed: provider,
-        error: result.error,
+        error: scrub(result.error),
         durationMs: 0,
       };
     }
@@ -474,7 +607,7 @@ async function runWithProvider(opts: ProviderRunOptions): Promise<AgentRunResult
       response: "",
       sessionPath,
       providerUsed: provider,
-      error: errorMessage(err),
+      error: scrub(errorMessage(err)),
       durationMs: 0,
     };
   }
@@ -491,7 +624,17 @@ async function invokePi(
   env: Record<string, string | undefined>,
   _timeoutMs: number,
 ): Promise<PiResult> {
-  const mergedEnv = { ...process.env, ...env };
+  // Merge provider env over the ambient env. An explicit `undefined` value
+  // UNSETS the variable (spreading alone would leave the ambient value in
+  // place, which is how a stray GOOGLE_API_KEY could shadow GEMINI_API_KEY).
+  const mergedEnv: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) mergedEnv[key] = value;
+  }
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) delete mergedEnv[key];
+    else mergedEnv[key] = value;
+  }
 
   // The prompt is the last argument (passed to -p flag).
   // Pi accepts it as a direct string argument.
@@ -626,6 +769,10 @@ export function extractErrorMessage(jsonPath: string): string | null {
   }
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function failure(error: string): AgentRunResult {
   return {
     success: false,
@@ -639,7 +786,8 @@ function failure(error: string): AgentRunResult {
 
 function validateProvider(provider: ProviderConfig): string | null {
   try {
-    return buildProviderArgs(provider) ? null : "unknown";
+    buildProviderArgs(provider);
+    return null;
   } catch (err) {
     return errorMessage(err);
   }

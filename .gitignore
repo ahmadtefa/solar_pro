@@ -46,3 +46,8 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Tooling caches (vitest / vite)
+.vitest/
+node_modules/.vite/
+*.tsbuildinfo

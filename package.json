@@ -1,7 +1,7 @@
 {
   "name": "issueclaw",
   "version": "2.0.0",
-  "description": "IssueClaw — AI assistant that lives in your GitHub Issues. Multi-provider, persistent memory, two modes (chat + agent). Runs entirely on GitHub Actions.",
+  "description": "IssueClaw \u2014 AI assistant that lives in your GitHub Issues. Multi-provider, persistent memory, two modes (chat + agent). Runs entirely on GitHub Actions.",
   "type": "module",
   "license": "MIT",
   "author": "IssueClaw",
@@ -25,13 +25,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "lint": "biome check src tests scripts",
-    "lint:fix": "biome check --write --unsafe src tests scripts",
+    "lint": "biome check src tests",
+    "lint:fix": "biome check --write --unsafe src tests",
     "typecheck": "bun x tsc --noEmit",
     "preinstall:hook": "bun run src/lifecycle/preinstall.ts",
     "main:hook": "bun run src/lifecycle/main.ts",
     "build": "bun build src/cli.ts --outdir dist --target=node",
-    "clean": "rm -rf dist coverage .vitest"
+    "clean": "rm -rf dist coverage .vitest",
+    "preflight": "bun run src/lifecycle/preflight.ts"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "^0.80.3",
