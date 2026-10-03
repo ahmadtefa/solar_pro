@@ -1,17 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'core/database/database_helper.dart';
 import 'core/theme/app_theme.dart';
 import 'features/home/presentation/screens/home_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize FFI for desktop platforms (Linux, Windows, macOS)
-  sqfliteFfiInit();
-  databaseFactory = databaseFactoryFfi;
+  // Initialize FFI only on desktop platforms (Linux, Windows, macOS)
+  DatabaseHelper.configureDatabaseFactory();
 
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,

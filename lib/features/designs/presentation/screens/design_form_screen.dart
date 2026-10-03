@@ -53,11 +53,15 @@ class _DesignFormScreenState extends ConsumerState<DesignFormScreen> {
       _selectedSystemType = d.systemType;
       _selectedCustomerType = d.customerType;
       _selectedInverterId = d.inverterId;
+      _selectedPanelId = d.panelId;
       _notesController.text = d.notes ?? '';
       _manualPanelCount = d.panelCount;
       _manualStringCount = d.stringCount;
       _isManualOverride = d.panelCount > 0 && d.stringCount > 0;
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _calculate();
+    });
   }
 
   @override
@@ -68,11 +72,12 @@ class _DesignFormScreenState extends ConsumerState<DesignFormScreen> {
   }
 
   void _calculate() {
+    if (!mounted) return;
     final capacityKw = double.tryParse(_capacityController.text) ?? 0;
     final panelsAsync = ref.read(panelsListProvider);
     final invertersAsync = ref.read(invertersListProvider);
-    final panels = panelsAsync.value;
-    final inverters = invertersAsync.value;
+    final panels = panelsAsync.valueOrNull;
+    final inverters = invertersAsync.valueOrNull;
     if (panels == null || inverters == null) return;
 
     final panel = panels.firstWhere(
@@ -84,27 +89,57 @@ class _DesignFormScreenState extends ConsumerState<DesignFormScreen> {
       orElse: () => Component(type: 'inverter', brand: '', model: '', createdAt: DateTime.now()),
     );
 
+    int nextTotalPanels = _totalPanels;
+    int nextMaxPanelsPerString = _maxPanelsPerString;
+    int nextNumberOfStrings = _numberOfStrings;
+    List<int> nextDistribution = _distribution;
+    double nextPanelPowerW = _panelPowerW;
+    double nextPanelPricePerWatt = _panelPricePerWatt;
+    double nextInverterPrice = _inverterPrice;
+
     if (panel.powerW != null && panel.vocV != null) {
-      _panelPowerW = panel.powerW!.toDouble();
-      _panelPricePerWatt = panel.pricePerWatt ?? 0;
+      nextPanelPowerW = panel.powerW!.toDouble();
+      nextPanelPricePerWatt = panel.pricePerWatt ?? 0;
       if (inverter.maxDcVoltage != null) {
         final capacityW = capacityKw * 1000;
-        _totalPanels = SolarCalculator.calculateTotalPanels(capacityW, _panelPowerW);
-        _maxPanelsPerString = SolarCalculator.calculateMaxPanelsPerString(inverter.maxDcVoltage!, panel.vocV!);
-        _numberOfStrings = SolarCalculator.calculateNumberOfStrings(_totalPanels, _maxPanelsPerString);
-        _distribution = SolarCalculator.distributePanelsInStrings(_totalPanels, _numberOfStrings);
+        nextTotalPanels = SolarCalculator.calculateTotalPanels(capacityW, nextPanelPowerW);
+        nextMaxPanelsPerString = SolarCalculator.calculateMaxPanelsPerString(inverter.maxDcVoltage!, panel.vocV!);
+        nextNumberOfStrings = SolarCalculator.calculateNumberOfStrings(nextTotalPanels, nextMaxPanelsPerString);
+        nextDistribution = SolarCalculator.distributePanelsInStrings(nextTotalPanels, nextNumberOfStrings);
       }
     }
     if (inverter.maxDcVoltage != null) {
-      _inverterPrice = inverter.price;
+      nextInverterPrice = inverter.price;
     }
-    setState(() {});
+
+    final distributionChanged = nextDistribution.length != _distribution.length ||
+        !List.generate(nextDistribution.length, (i) => nextDistribution[i] == _distribution[i]).every((e) => e);
+
+    if (nextTotalPanels != _totalPanels ||
+        nextMaxPanelsPerString != _maxPanelsPerString ||
+        nextNumberOfStrings != _numberOfStrings ||
+        distributionChanged ||
+        nextPanelPowerW != _panelPowerW ||
+        nextPanelPricePerWatt != _panelPricePerWatt ||
+        nextInverterPrice != _inverterPrice) {
+      setState(() {
+        _totalPanels = nextTotalPanels;
+        _maxPanelsPerString = nextMaxPanelsPerString;
+        _numberOfStrings = nextNumberOfStrings;
+        _distribution = nextDistribution;
+        _panelPowerW = nextPanelPowerW;
+        _panelPricePerWatt = nextPanelPricePerWatt;
+        _inverterPrice = nextInverterPrice;
+      });
+    }
   }
 
   void _resetToAuto() {
-    _isManualOverride = false;
-    _manualPanelCount = 0;
-    _manualStringCount = 0;
+    setState(() {
+      _isManualOverride = false;
+      _manualPanelCount = 0;
+      _manualStringCount = 0;
+    });
     _calculate();
   }
 
@@ -122,6 +157,8 @@ class _DesignFormScreenState extends ConsumerState<DesignFormScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('الرجاء اختيار الإنفرتر')));
       return;
     }
+
+    _calculate();
 
     final capacityKw = double.tryParse(_capacityController.text) ?? 0;
     int panelCount, stringCount, panelsPerString;
@@ -142,6 +179,7 @@ class _DesignFormScreenState extends ConsumerState<DesignFormScreen> {
       systemType: _selectedSystemType,
       customerType: _selectedCustomerType,
       inverterId: _selectedInverterId,
+      panelId: _selectedPanelId,
       panelCount: panelCount,
       stringCount: stringCount,
       panelsPerString: panelsPerString,
@@ -149,20 +187,38 @@ class _DesignFormScreenState extends ConsumerState<DesignFormScreen> {
       createdAt: widget.design?.createdAt ?? DateTime.now(),
     );
 
-    final notifier = ref.read(designsListProvider.notifier);
-    if (_isEditing) {
-      await notifier.updateDesign(design);
-    } else {
-      await notifier.add(design);
+    try {
+      final notifier = ref.read(designsListProvider.notifier);
+      final int? result;
+      if (_isEditing) {
+        result = await notifier.updateDesign(design);
+      } else {
+        result = await notifier.add(design);
+      }
+
+      if (result == null || result <= 0) {
+        if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+             const SnackBar(content: Text('فشل الحفظ: لم يتم حفظ التصميم')),
+           );
+        }
+        return;
+      }
+
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('فشل الحفظ: $e')),
+        );
+      }
     }
-    if (mounted) Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
-    ref.watch(panelsListProvider);
-    ref.watch(invertersListProvider);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _calculate());
+    ref.listen<AsyncValue<List<Component>>>(panelsListProvider, (_, __) => _calculate());
+    ref.listen<AsyncValue<List<Component>>>(invertersListProvider, (_, __) => _calculate());
 
     return Scaffold(
       appBar: AppBar(
@@ -183,7 +239,7 @@ class _DesignFormScreenState extends ConsumerState<DesignFormScreen> {
                 error: (_, e) => Text('خطأ: $e'),
                 data: (customers) => DropdownButtonFormField<int>(
                   decoration: const InputDecoration(labelText: 'العميل *', prefixIcon: Icon(Icons.person)),
-                  initialValue: _selectedCustomerId,
+                  initialValue: customers.any((c) => c.id == _selectedCustomerId) ? _selectedCustomerId : null,
                   items: customers.map((c) => DropdownMenuItem(value: c.id, child: Text(c.name))).toList(),
                   onChanged: (v) => setState(() => _selectedCustomerId = v),
                   validator: (v) => v == null ? 'الرجاء اختيار عميل' : null,
@@ -196,7 +252,7 @@ class _DesignFormScreenState extends ConsumerState<DesignFormScreen> {
               decoration: const InputDecoration(labelText: 'السعة (ك.و) *', prefixIcon: Icon(Icons.bolt), suffixText: 'ك.و'),
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               validator: (v) { if (v == null || v.isEmpty) return 'مطلوب'; if (double.tryParse(v) == null) return 'أدخل رقماً'; return null; },
-              onChanged: (_) => setState(() {}),
+              onChanged: (_) => _calculate(),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
@@ -231,9 +287,12 @@ class _DesignFormScreenState extends ConsumerState<DesignFormScreen> {
                 error: (_, e) => Text('خطأ: $e'),
                 data: (inverters) => DropdownButtonFormField<int>(
                   decoration: const InputDecoration(labelText: 'الإنفرتر *', prefixIcon: Icon(Icons.electrical_services)),
-                  initialValue: _selectedInverterId,
+                  initialValue: inverters.any((inv) => inv.id == _selectedInverterId) ? _selectedInverterId : null,
                   items: inverters.map((inv) => DropdownMenuItem(value: inv.id, child: Text('${inv.brand} ${inv.model}'))).toList(),
-                  onChanged: (v) => setState(() => _selectedInverterId = v),
+                  onChanged: (v) {
+                    setState(() => _selectedInverterId = v);
+                    _calculate();
+                  },
                   validator: (v) => v == null ? 'الرجاء اختيار إنفرتر' : null,
                 ),
               );
@@ -246,9 +305,12 @@ class _DesignFormScreenState extends ConsumerState<DesignFormScreen> {
                 error: (_, e) => Text('خطأ: $e'),
                 data: (panels) => DropdownButtonFormField<int>(
                   decoration: const InputDecoration(labelText: 'اللوح الشمسي *', prefixIcon: Icon(Icons.solar_power)),
-                  initialValue: _selectedPanelId,
+                  initialValue: panels.any((p) => p.id == _selectedPanelId) ? _selectedPanelId : null,
                   items: panels.map((p) => DropdownMenuItem(value: p.id, child: Text('${p.brand} ${p.model} (${p.powerW} W)'))).toList(),
-                  onChanged: (v) => setState(() => _selectedPanelId = v),
+                  onChanged: (v) {
+                    setState(() => _selectedPanelId = v);
+                    _calculate();
+                  },
                   validator: (v) => v == null ? 'الرجاء اختيار لوح شمسي' : null,
                 ),
               );
@@ -335,7 +397,7 @@ class _DesignFormScreenState extends ConsumerState<DesignFormScreen> {
                     const Divider(height: 24),
                     _InfoRow(label: 'تكلفة الإنفرتر', value: '${_inverterPrice.toStringAsFixed(0)} ج.م'),
                     const Divider(height: 24),
-                    _MoneyRow(label: 'إجمالي تكلفة المكونات', value: '{($_totalPanels * _panelPowerW * _panelPricePerWatt + _inverterPrice).toStringAsFixed(2)} ج.م'),
+                    _MoneyRow(label: 'إجمالي تكلفة المكونات', value: '${(_totalPanels * _panelPowerW * _panelPricePerWatt + _inverterPrice).toStringAsFixed(2)} ج.م'),
                   ],
                 ),
               ),

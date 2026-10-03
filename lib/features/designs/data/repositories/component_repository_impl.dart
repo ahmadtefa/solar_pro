@@ -30,8 +30,6 @@ class ComponentRepositoryImpl implements ComponentRepository {
 
   @override
   Future<int> insert(Component component) async {
-    print('INSERT: insert() called');
-    print('INSERT: component = ${component.toMap()}');
     try {
       return await _db.insertComponent(component);
     } catch (e) {

@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
@@ -27,35 +25,70 @@ class DatabaseHelper {
     return _instance!;
   }
 
+  /// Returns true only on desktop platforms (Linux, Windows, macOS) when not running on Web.
+  static bool shouldUseDesktopFfi({
+    bool isWeb = kIsWeb,
+    TargetPlatform? platform,
+  }) {
+    if (isWeb) return false;
+    final target = platform ?? defaultTargetPlatform;
+    return target == TargetPlatform.linux ||
+        target == TargetPlatform.windows ||
+        target == TargetPlatform.macOS;
+  }
+
+  /// Configures the sqflite [databaseFactory] for the current platform.
+  /// Desktop platforms use `sqflite_common_ffi`, Web uses `sqflite_common_ffi_web`,
+  /// and mobile platforms (Android/iOS) keep the default native `sqflite` plugin.
+  static void configureDatabaseFactory({
+    bool isWeb = kIsWeb,
+    TargetPlatform? platform,
+    void Function()? ffiInit,
+  }) {
+    if (isWeb) {
+      databaseFactory = databaseFactoryFfiWeb;
+      return;
+    }
+    if (shouldUseDesktopFfi(isWeb: isWeb, platform: platform)) {
+      (ffiInit ?? sqfliteFfiInit)();
+      databaseFactory = databaseFactoryFfi;
+    }
+  }
+
+  @visibleForTesting
+  static void setTestDatabase(Database? db) {
+    _database = db;
+  }
+
+  @visibleForTesting
+  Future<void> createTablesForTest(Database db) => _createTables(db);
+
+  @visibleForTesting
+  Future<void> upgradeDatabaseForTest(
+    Database db,
+    int oldVersion,
+    int newVersion,
+  ) => _onUpgrade(db, oldVersion, newVersion);
+
   Future<Database> get database async {
     _database ??= await _initDatabase();
     return _database!;
   }
 
   Future<Database> _initDatabase() async {
-    // Initialize FFI for desktop platforms
-    if (!kIsWeb && Platform.isLinux) {
-      sqfliteFfiInit();
-      databaseFactory = databaseFactoryFfi;
-    } else if (!kIsWeb && Platform.isWindows) {
-      sqfliteFfiInit();
-      databaseFactory = databaseFactoryFfi;
-    } else if (!kIsWeb && Platform.isMacOS) {
-      sqfliteFfiInit();
-      databaseFactory = databaseFactoryFfi;
-    }
+    configureDatabaseFactory();
 
-    // Web platform setup
+    final String path;
     if (kIsWeb) {
-      databaseFactory = databaseFactoryFfiWeb;
+      path = 'solar_pro.db';
+    } else {
+      final documentsDirectory = await getApplicationDocumentsDirectory();
+      path = join(documentsDirectory.path, 'solar_pro.db');
     }
-
-    final documentsDirectory = await getApplicationDocumentsDirectory();
-    final path = join(documentsDirectory.path, 'solar_pro.db');
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
       onConfigure: (db) async {
@@ -68,11 +101,28 @@ class DatabaseHelper {
     await _createTables(db);
   }
 
+  Future<bool> _hasColumn(Database db, String table, String column) async {
+    final columns = await db.rawQuery('PRAGMA table_info($table)');
+    return columns.any((col) => col['name'] == column);
+  }
+
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     // Handle migrations here for future versions
     if (oldVersion < 2) {
       // Add price_per_watt column to components table
-      await db.execute('ALTER TABLE components ADD COLUMN price_per_watt REAL');
+      if (!await _hasColumn(db, 'components', 'price_per_watt')) {
+        await db.execute(
+          'ALTER TABLE components ADD COLUMN price_per_watt REAL',
+        );
+      }
+    }
+    if (oldVersion < 3) {
+      // Add nullable panelId column to designs table for editing support
+      if (!await _hasColumn(db, 'designs', 'panelId')) {
+        await db.execute(
+          'ALTER TABLE designs ADD COLUMN panelId INTEGER REFERENCES components(id) ON DELETE SET NULL',
+        );
+      }
     }
   }
 
@@ -121,13 +171,15 @@ class DatabaseHelper {
         systemType TEXT NOT NULL,
         customerType TEXT NOT NULL,
         inverterId INTEGER,
+        panelId INTEGER,
         panelCount INTEGER DEFAULT 0,
         stringCount INTEGER DEFAULT 0,
         panelsPerString INTEGER DEFAULT 0,
         notes TEXT,
         createdAt TEXT NOT NULL,
         FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE CASCADE,
-        FOREIGN KEY (inverterId) REFERENCES components(id) ON DELETE SET NULL
+        FOREIGN KEY (inverterId) REFERENCES components(id) ON DELETE SET NULL,
+        FOREIGN KEY (panelId) REFERENCES components(id) ON DELETE SET NULL
       )
     ''');
 
@@ -319,11 +371,7 @@ class DatabaseHelper {
   }
 
   Future<int> insertComponent(Component component) async {
-    print('DB: insertComponent called');
-    print('DB: map = ${component.toMap()}');
-    final id = await insert('components', component.toMap());
-    print('DB: inserted with id = $id');
-    return id;
+    return insert('components', component.toMap());
   }
 
   Future<List<Component>> getComponents({String? type}) async {

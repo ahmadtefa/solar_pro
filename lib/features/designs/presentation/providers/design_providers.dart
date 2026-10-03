@@ -49,40 +49,28 @@ class DesignsNotifier extends AsyncNotifier<List<Design>> {
 
   Future<int?> add(Design design) async {
     final repo = ref.read(designRepositoryProvider);
-    final result = await AsyncValue.guard(() => repo.insert(design));
-    result.whenOrNull(
-      data: (id) {
-        ref.invalidate(designByIdProvider(id));
-        refresh();
-      },
-    );
-    return result.valueOrNull;
+    final id = await repo.insert(design);
+    ref.invalidate(designByIdProvider(id));
+    await refresh();
+    return id;
   }
 
   Future<int?> updateDesign(Design design) async {
     final repo = ref.read(designRepositoryProvider);
-    final result = await AsyncValue.guard(() => repo.update(design));
-    result.whenOrNull(
-      data: (_) {
-        if (design.id != null) {
-          ref.invalidate(designByIdProvider(design.id!));
-        }
-        refresh();
-      },
-    );
-    return result.valueOrNull;
+    final rows = await repo.update(design);
+    if (design.id != null) {
+      ref.invalidate(designByIdProvider(design.id!));
+    }
+    await refresh();
+    return rows;
   }
 
   Future<int?> deleteDesign(int id) async {
     final repo = ref.read(designRepositoryProvider);
-    final result = await AsyncValue.guard(() => repo.delete(id));
-    result.whenOrNull(
-      data: (_) {
-        ref.invalidate(designByIdProvider(id));
-        refresh();
-      },
-    );
-    return result.valueOrNull;
+    final rows = await repo.delete(id);
+    ref.invalidate(designByIdProvider(id));
+    await refresh();
+    return rows;
   }
 }
 
