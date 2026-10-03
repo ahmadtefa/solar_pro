@@ -63,6 +63,7 @@ function makeEvent() {
     rawName: "issues",
     issueNumber: 1,
     title: "Hello",
+    issueBody: "What is 2+2?",
     body: "What is 2+2?",
     author: "testuser",
     authorAssociation: "OWNER",
