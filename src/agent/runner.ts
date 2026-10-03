@@ -7,7 +7,8 @@
  * - Tracks session file for resume
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { IssueClawConfig, ProviderConfig } from "../config.ts";
 import { getProviderChain } from "../config.ts";
@@ -634,6 +635,23 @@ async function invokePi(
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) delete mergedEnv[key];
     else mergedEnv[key] = value;
+  }
+
+  // pi resolves credentials from ~/.pi/agent/auth.json BEFORE falling back to
+  // the environment (see pi-ai's envApiKeyAuth). On a runner with a persisted
+  // home directory a stale stored key would silently shadow the repository
+  // secret — the classic "the key works in AI Studio but not in CI" symptom.
+  // In CI, point pi at a throwaway agent dir so the injected secret always wins.
+  if (
+    !mergedEnv.PI_CODING_AGENT_DIR &&
+    (process.env.CI === "true" || process.env.GITHUB_ACTIONS === "true")
+  ) {
+    try {
+      mergedEnv.PI_CODING_AGENT_DIR = mkdtempSync(join(tmpdir(), "issueclaw-pi-agent-"));
+      log.debug("using ephemeral pi agent dir", { dir: mergedEnv.PI_CODING_AGENT_DIR });
+    } catch (err) {
+      log.warn("could not create ephemeral pi agent dir", { error: errorMessage(err) });
+    }
   }
 
   // The prompt is the last argument (passed to -p flag).

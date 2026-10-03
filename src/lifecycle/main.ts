@@ -29,6 +29,8 @@ import {
 } from "../utils/errors.ts";
 import { GitClient } from "../utils/git.ts";
 import { log } from "../utils/log.ts";
+import { detectReadOnlyRequest, planCommitScope } from "../utils/policy.ts";
+import { preflight } from "./preflight.ts";
 
 /**
  * Build a helpful error message to post on the issue when the agent fails.
@@ -302,6 +304,25 @@ async function main(config: IssueClawConfig): Promise<void> {
   const git = new GitClient({});
   await git.configure();
 
+  // Preflight: probe the configured provider/model so a bad credential or a
+  // retired Gemini model is reported as itself, before any agent work happens.
+  // Advisory only — the run continues regardless (the provider chain may still
+  // succeed), and it is skipped in offline/dry-run mode.
+  if (!config.runtime.offline) {
+    try {
+      const check = await preflight(config);
+      if (!check.ok) {
+        log.warn("preflight reported configuration problems", {
+          checked: check.checked.map((c) => `${c.provider}/${c.model}: ${c.status}`),
+        });
+      }
+    } catch (err) {
+      log.warn("preflight could not run", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   // Read existing mapping for resume
   const existingMapping = memory.getMapping(event.issueNumber);
   let _mode = "new";
@@ -416,7 +437,21 @@ async function main(config: IssueClawConfig): Promise<void> {
 
     // Commit & push (unless dry-run)
     if (!config.runtime.dryRun) {
-      await git.add(["-A"]);
+      // Honour an explicit read-only request: stage only IssueClaw's own state
+      // so the run cannot modify application code, whatever the model did.
+      const readOnly = detectReadOnlyRequest(`${event.title}\n${event.body}`);
+      const scope = planCommitScope(await git.status(), readOnly);
+      if (scope.restricted) {
+        if (scope.skipped.length > 0) {
+          log.warn("read-only request: changes outside state/ will not be committed", {
+            count: scope.skipped.length,
+            files: scope.skipped.slice(0, 20),
+          });
+        } else {
+          log.info("read-only request: no changes outside state/ detected");
+        }
+      }
+      await git.add(scope.paths);
       const committed = await git.commit(
         `issueclaw: work on issue #${event.issueNumber} (${mode})`,
       );
