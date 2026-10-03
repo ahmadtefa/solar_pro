@@ -21,6 +21,12 @@ import { GithubClient } from "../github/client.ts";
 import { parseEvent } from "../github/events.ts";
 import { MemoryStore } from "../memory/store.ts";
 import type { IssueMapping } from "../memory/store.ts";
+import {
+  type ProviderErrorInfo,
+  classifyProviderError,
+  collectSecrets,
+  redactSecrets,
+} from "../utils/errors.ts";
 import { GitClient } from "../utils/git.ts";
 import { log } from "../utils/log.ts";
 
@@ -28,22 +34,76 @@ import { log } from "../utils/log.ts";
  * Build a helpful error message to post on the issue when the agent fails.
  * Includes the error, provider used, and actionable troubleshooting steps.
  */
+/**
+ * Rows extracted from the aggregated per-provider failure summary produced by
+ * the runner/chat layer, e.g.
+ *   `1. \`gemini/gemini-2.5-flash-lite\` (✓ key set): LLM API error: {"error":…}`
+ *   `2. \`groq/llama-3.3-70b-versatile\` (✗ no key): skipped — no API key configured`
+ */
+interface ProviderFailureRow {
+  label: string;
+  model: string;
+  hadKey: boolean;
+  skipped: boolean;
+  error: string;
+}
+
+function parseProviderFailures(errMsg: string): ProviderFailureRow[] {
+  const rows: ProviderFailureRow[] = [];
+  const lineRe = /^\s*\d+\.\s+`([^`]+)`\s*\(([^)]*)\):\s*(.*)$/gm;
+  for (const match of errMsg.matchAll(lineRe)) {
+    const label = match[1] ?? "";
+    const status = (match[2] ?? "").toLowerCase();
+    const body = match[3] ?? "";
+    rows.push({
+      label,
+      model: label.includes("/") ? label.slice(label.indexOf("/") + 1) : label,
+      hadKey: status.includes("key set"),
+      skipped: /skip|no key/i.test(status) || /^skipped/i.test(body.trim()),
+      error: body.trim(),
+    });
+  }
+  return rows;
+}
+
 function buildErrorMessage(
   result: AgentRunResult,
   _provider: string,
   errMsg: string,
   config: IssueClawConfig,
 ): string {
-  // Check if ALL providers failed because they all lack API keys
-  const allProvidersNoKey = errMsg.includes("✗ no key") && !errMsg.includes("✓ key set");
-  const hasAnyKeySet = errMsg.includes("✓ key set");
+  // Redact first: this text is posted as a public GitHub comment.
+  const safeErrMsg = redactSecrets(errMsg, collectSecrets(config.providers));
 
-  // Classify the error
-  const isMissingKey = /requires.*API_KEY|invalid:.*requires|no key/i.test(errMsg);
-  const isAuthError = /403|401|Forbidden|Unauthorized|API key|apiKey/i.test(errMsg);
-  const isRateLimit = /429|rate limit|RateLimit|RESOURCE_EXHAUSTED|quota/i.test(errMsg);
-  const isTokenLimit = /413|too large|TPM|tokens per minute|Request too large/i.test(errMsg);
-  const isNetwork = /timeout|ETIMEDOUT|ECONNRESET|ECONNREFUSED|network/i.test(errMsg);
+  // Split the aggregated summary into per-provider rows.
+  const rows = parseProviderFailures(safeErrMsg);
+  const attempted = rows.filter((r) => !r.skipped);
+  const allProvidersNoKey = rows.length > 0 && attempted.length === 0;
+
+  // Classify the error from the providers we ACTUALLY called.
+  //
+  // The previous implementation regex-matched the whole summary for /API key/i,
+  // which always matched the "no API key set (needs GROQ_API_KEY)" lines of the
+  // unconfigured fallbacks. Every failure was therefore reported as
+  // "Authentication error (403/401)" — including retired-model 404s and 429s.
+  const infos: Array<{ row: ProviderFailureRow; info: ProviderErrorInfo }> = attempted.map((r) => ({
+    row: r,
+    info: classifyProviderError(r.error),
+  }));
+
+  const isAuthError = !allProvidersNoKey && infos.some((i) => i.info.kind === "auth");
+  const isModelGone = !allProvidersNoKey && infos.some((i) => i.info.kind === "model_not_found");
+  const isRateLimit = infos.some(
+    (i) =>
+      i.info.kind === "rate_limit" ||
+      i.info.kind === "overloaded" ||
+      i.info.kind === "quota_exhausted",
+  );
+  const isQuotaExhausted = infos.some((i) => i.info.kind === "quota_exhausted");
+  const isTokenLimit = infos.some((i) => i.info.kind === "request_too_large");
+  const isNetwork = infos.some((i) => i.info.kind === "network");
+  const isMissingKey = attempted.length === 0 && !allProvidersNoKey;
+  const hasAnyKeySet = attempted.length > 0;
 
   let hint = "";
 
@@ -96,26 +156,57 @@ The prompt (including system prompt, tools, and context) exceeded the provider's
 2. **Wait and retry** — TPM limits reset every 60 seconds
 3. **Add multiple fallback providers** in \`issueclaw.config.json\``;
   } else if (isRateLimit) {
-    hint = `**Rate limit or quota exceeded (429).**
+    hint = `**${isQuotaExhausted ? "Quota exhausted (429)" : "Rate limited or provider overloaded (429/503)"}**
 
-One or more providers rate-limited the request.
+IssueClaw already retries transient 429/503 responses with exponential backoff and honours
+the provider's own \`Please retry in Ns\` hint, so this means the limit was still exceeded
+after the retry budget was spent.
 
 **How to fix:**
-1. **Wait a minute and retry** — rate limits reset quickly
-2. **Set up multiple providers** — the fallback chain will try the next one
-3. **Check your provider's quota dashboard**:
-   - Gemini: https://ai.google.dev/gemini-api/docs/rate-limits
+1. **Wait and re-run** — per-minute limits reset within 60s; daily quotas reset at midnight Pacific
+2. **Add fallback providers/models** in \`issueclaw.config.json\` — the chain tries the next entry
+3. **Check the provider's quota dashboard**:
+   - Gemini: https://ai.google.dev/gemini-api/docs/rate-limits (free tier is 5–15 RPM per model)
    - Groq: https://console.groq.com/settings/limits
-   - OpenRouter: https://openrouter.ai/activity`;
-  } else if (isAuthError) {
-    hint = `**Authentication error (403/401).**
+   - OpenRouter: https://openrouter.ai/activity
+4. **Gemini free tier tip**: switch the default model to a Flash-Lite id
+   (\`gemini-3.5-flash-lite\`) — it has the highest free RPM/RPD ceiling`;
+  } else if (isModelGone) {
+    const gone = infos.filter((i) => i.info.kind === "model_not_found");
+    hint = `**The configured model no longer exists (HTTP 404).**
 
-An API key was rejected by the provider.
+This is a configuration problem, not an authentication problem — the API key was accepted.
+
+${gone
+  .map(
+    (g) =>
+      `- \`${g.row.label}\`${g.info.model ? ` — model \`${g.info.model}\` was retired` : ""}${
+        g.info.suggestedModel ? `. The API suggests \`${g.info.suggestedModel}\` instead.` : "."
+      }`,
+  )
+  .join("\n")}
 
 **How to fix:**
-1. **Verify the key is valid** — regenerate it at the provider's console
-2. **Check for geo-restrictions** — some providers block certain regions
-3. **Ensure the key hasn't been revoked or expired**`;
+1. Update the \`model\` for the \`gemini\` provider in \`issueclaw.config.json\`
+   (current free-tier Flash-Lite ids: \`gemini-3.5-flash-lite\`, \`gemini-flash-lite-latest\`)
+2. Or set the \`ISSUECLAW_MODEL\` repository variable
+3. \`issueclaw doctor\` flags retired Gemini ids before a run starts`;
+  } else if (isAuthError) {
+    hint = `**Authentication error (401/403).**
+
+The provider rejected the credential for a provider that was actually attempted.
+
+**How to fix:**
+1. **Verify the secret matches the provider** — \`GEMINI_API_KEY\` for \`gemini\`, etc.
+   (Secret names are case-sensitive; empty secrets are treated as "not set".)
+2. **Modern Gemini keys must be sent as the \`x-goog-api-key\` header.** AI Studio now
+   issues \`AQ.\`-prefixed "auth" keys; legacy \`AIzaSy…\` keys are being rejected.
+   IssueClaw/pi already use the header — if you forked the provider code, check that
+   the key is not passed as a \`?key=\` query parameter.
+3. **Remove stale stored credentials** — pi prefers \`~/.pi/agent/auth.json\` over the
+   environment. CI points pi at a clean agent dir, but a self-hosted runner with a
+   persisted home directory can shadow the secret.
+4. **Regenerate the key** if it was revoked, then update the repository secret`;
   } else if (isNetwork) {
     hint = `**Network error.**
 
@@ -130,12 +221,26 @@ Check the workflow logs in the Actions tab for the full error details.`;
     .map((p, i) => `${i + 1}. \`${p.type}/${p.model}\`${p.default ? " (default)" : ""}`)
     .join("\n");
 
+  // Precise per-provider diagnosis: which provider was actually called, what
+  // the provider said, and whether the failure is retryable.
+  const diagnosis =
+    infos.length > 0
+      ? infos
+          .map(
+            (i) =>
+              `- \`${i.row.label}\` → **${i.info.summary}** (${i.info.kind}, ${
+                i.info.retryable ? "retryable" : "not retryable"
+              })`,
+          )
+          .join("\n")
+      : "- No provider with a credential was reachable.";
+
   // The error message from the runner now contains ALL provider failures
   // Show it in a collapsible details section
   const errDisplay =
-    errMsg.length > 3000
-      ? `${errMsg.slice(0, 3000)}\n\n...(truncated, see full logs in Actions tab)`
-      : errMsg;
+    safeErrMsg.length > 3000
+      ? `${safeErrMsg.slice(0, 3000)}\n\n...(truncated, see full logs in Actions tab)`
+      : safeErrMsg;
 
   return `## ⚠️ Agent Error
 
@@ -156,6 +261,9 @@ ${errDisplay}
 
 <details>
 <summary>📋 Configuration</summary>
+
+**Diagnosis (classified from the providers that were actually called):**
+${diagnosis}
 
 **Provider fallback chain:**
 ${providers}
@@ -398,4 +506,5 @@ if (import.meta.path === process.argv[1] || process.argv[1]?.endsWith("main.ts")
   });
 }
 
-export { main };
+// Exported for tests: classification of aggregated provider failures.
+export { buildErrorMessage, main };

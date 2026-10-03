@@ -2,20 +2,25 @@
   "version": 1,
   "providers": [
     {
-      "type": "groq",
-      "model": "llama-3.3-70b-versatile",
-      "apiKey": "${GROQ_API_KEY}"
-    },
-    {
-      "type": "groq",
-      "model": "llama-3.1-8b-instant",
-      "apiKey": "${GROQ_API_KEY}"
+      "type": "gemini",
+      "model": "gemini-3.5-flash-lite",
+      "apiKey": "${GEMINI_API_KEY}",
+      "default": true
     },
     {
       "type": "gemini",
-      "model": "gemini-2.5-flash-lite",
-      "apiKey": "${GEMINI_API_KEY}",
-      "default": true
+      "model": "gemini-flash-lite-latest",
+      "apiKey": "${GEMINI_API_KEY}"
+    },
+    {
+      "type": "gemini",
+      "model": "gemini-3.8-flash",
+      "apiKey": "${GEMINI_API_KEY}"
+    },
+    {
+      "type": "groq",
+      "model": "llama-3.3-70b-versatile",
+      "apiKey": "${GROQ_API_KEY}"
     },
     {
       "type": "cerebras",

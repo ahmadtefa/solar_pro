@@ -1,0 +1,72 @@
+diff --git a/.github/workflows/issueclaw-agent.yml b/.github/workflows/issueclaw-agent.yml
+index 45b31b3a..3ac97b97 100755
+--- a/.github/workflows/issueclaw-agent.yml
++++ b/.github/workflows/issueclaw-agent.yml
+@@ -55,10 +55,12 @@ jobs:
+           bun-version: latest
+ 
+       - name: Setup GitHub CLI
+-        # gh is pre-installed on ubuntu-latest, but we ensure auth
+-        run: |
+-          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+-          gh auth status
++        # gh is pre-installed on ubuntu-latest. GH_TOKEN is consumed from the
++        # environment — never echo a secret into a shell command, where it can
++        # end up in the process table or debug traces.
++        env:
++          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
++        run: gh auth status
+ 
+       - name: Configure git
+         run: |
+@@ -86,6 +88,34 @@ jobs:
+       - name: Install dependencies
+         run: bun install
+ 
++      - name: Verify agent credential
++        # Fail fast with an explicit message when the secret is missing/empty.
++        # Only the credential SHAPE is reported — never its value.
++        env:
++          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
++        run: |
++          if [ -z "${GEMINI_API_KEY}" ]; then
++            echo "::error::GEMINI_API_KEY is not set for this repository."
++            echo "Add it under Settings → Secrets and variables → Actions → Secrets,"
++            echo "then re-run this workflow. (Secret names are case-sensitive.)"
++            exit 1
++          fi
++          echo "GEMINI_API_KEY is present (${#GEMINI_API_KEY} characters)."
++          case "$GEMINI_API_KEY" in
++            AQ.*) echo "Key format: AI Studio auth key (AQ.) — sent via the x-goog-api-key header." ;;
++            AIza*) echo "Key format: legacy standard key (AIzaSy…). Google is retiring these;"
++                   echo "regenerate it in AI Studio if authentication keeps failing." ;;
++            *) echo "Key format: unrecognized. Verify the value came from AI Studio." ;;
++          esac
++
++      - name: Preflight (credential + model check)
++        # Probes the configured Gemini model so a bad key or a retired model id
++        # is reported as itself instead of surfacing later as a vague error.
++        env:
++          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
++          ISSUECLAW_LOG_LEVEL: ${{ vars.ISSUECLAW_LOG_LEVEL || 'info' }}
++        run: bun run src/lifecycle/preflight.ts
++
+       - name: Run agent
+         env:
+           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+@@ -109,6 +139,15 @@ jobs:
+           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+           # Custom OpenAI-compatible endpoint (e.g. local LLM, Azure, Together, vLLM)
+           ISSUECLAW_BASE_URL: ${{ secrets.ISSUECLAW_BASE_URL }}
++          # Point pi at a clean per-run agent dir. pi resolves credentials from
++          # ~/.pi/agent/auth.json BEFORE the environment, so a stale stored key
++          # would silently shadow the GEMINI_API_KEY secret.
++          PI_CODING_AGENT_DIR: ${{ runner.temp }}/pi-agent
++          # Transient-failure handling for free-tier 429/503 responses.
++          # pi's own auto-retry only runs in interactive/RPC modes, so agent
++          # mode retries here instead (backoff honours Gemini's "retry in Ns").
++          ISSUECLAW_MAX_TRANSIENT_ATTEMPTS: "3"
++          ISSUECLAW_RETRY_BASE_MS: "10000"
+           # Optional overrides
+           ISSUECLAW_PROVIDER: ${{ vars.ISSUECLAW_PROVIDER }}
+           ISSUECLAW_MODEL: ${{ vars.ISSUECLAW_MODEL }}

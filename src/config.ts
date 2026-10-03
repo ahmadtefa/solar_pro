@@ -480,6 +480,27 @@ function deepMerge(base: unknown, override: unknown): unknown {
 }
 
 /**
+ * Replace resolved credentials with a placeholder.
+ *
+ * `loadConfig()` substitutes `${GEMINI_API_KEY}` with the plaintext secret, so
+ * printing a config object verbatim (as `issueclaw config show` did) leaks the
+ * key into terminal scrollback and CI logs. Debug output only ever needs to
+ * know *whether* a credential is present — see `describeCredential()`.
+ */
+export function redactConfig(config: IssueClawConfig): IssueClawConfig {
+  return {
+    ...config,
+    providers: config.providers.map((p) => ({
+      ...p,
+      apiKey: p.apiKey ? "***redacted***" : undefined,
+      headers: p.headers
+        ? Object.fromEntries(Object.keys(p.headers).map((k) => [k, "***redacted***"]))
+        : undefined,
+    })),
+  };
+}
+
+/**
  * Get the default (primary) provider from config.
  */
 export function getDefaultProvider(config: IssueClawConfig): ProviderConfig {

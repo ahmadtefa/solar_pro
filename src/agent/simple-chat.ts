@@ -18,8 +18,9 @@ import type { IssueClawConfig, ProviderConfig } from "../config.ts";
 import { getProviderChain } from "../config.ts";
 import type { ParsedEvent } from "../github/events.ts";
 import type { MemoryStore } from "../memory/store.ts";
+import { classifyProviderError, providerErrorHint, redactSecrets } from "../utils/errors.ts";
 import { log } from "../utils/log.ts";
-import { errorMessage, isRetryableHttpError, retry } from "../utils/retry.ts";
+import { errorMessage, isRetryableHttpError, retry, retryAfterMsFor } from "../utils/retry.ts";
 
 export interface SimpleChatOptions {
   config: IssueClawConfig;
@@ -106,9 +107,49 @@ async function callLLM(
   return callOpenAICompatible(provider, apiKey, systemPrompt, userMessage);
 }
 
+/** Gemini API version path. `v1beta` is where current models live. */
+export const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
+
+/**
+ * Build the Gemini `generateContent` endpoint.
+ *
+ * Exported for tests: the API key must NEVER appear in the URL. Google's
+ * current credential (the `AQ.` "auth" key issued by AI Studio) is only
+ * accepted via the `x-goog-api-key` header — a key placed in `?key=` produces
+ * an authentication/404 failure, and query strings additionally leak the
+ * secret into proxy logs and stack traces.
+ */
+export function geminiGenerateContentUrl(model: string): string {
+  return `${GEMINI_API_BASE}/models/${encodeURIComponent(model)}:generateContent`;
+}
+
+/**
+ * Extract the assistant-visible text from a Gemini `generateContent` response.
+ *
+ * Reasoning models (Gemini 2.5+/3.x) return *thought* parts alongside the
+ * answer and may split the answer across several parts, so reading only
+ * `parts[0].text` yields an empty string for perfectly good responses.
+ */
+export function extractGeminiText(data: {
+  candidates?: Array<{
+    content?: { parts?: Array<{ text?: string; thought?: boolean }> };
+    finishReason?: string;
+    finishMessage?: string;
+  }>;
+  promptFeedback?: { blockReason?: string; blockReasonMessage?: string };
+}): string {
+  const parts = data.candidates?.[0]?.content?.parts ?? [];
+  return parts
+    .filter((part) => part.thought !== true)
+    .map((part) => part.text ?? "")
+    .join("")
+    .trim();
+}
+
 /**
  * Call Google Gemini's native API.
- * Endpoint: https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
+ * Endpoint: POST {GEMINI_API_BASE}/models/{model}:generateContent
+ * Auth:     `x-goog-api-key` header (see geminiGenerateContentUrl docs).
  */
 async function callGemini(
   provider: ProviderConfig,
@@ -116,8 +157,8 @@ async function callGemini(
   systemPrompt: string,
   userMessage: string,
 ): Promise<{ text: string; tokens: number }> {
-  const model = provider.model;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const model = provider.model.trim().replace(/^models\//, "");
+  const url = geminiGenerateContentUrl(model);
 
   const body = {
     contents: [
@@ -131,34 +172,54 @@ async function callGemini(
     },
     generationConfig: {
       temperature: provider.temperature ?? 0.7,
-      maxOutputTokens: provider.maxTokens ?? 8192,
+      // Reasoning models spend this budget on internal thinking before any
+      // visible text, so a small cap produces MAX_TOKENS with no answer.
+      maxOutputTokens: provider.maxTokens ?? 32768,
     },
   };
 
   const resp = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
+    },
     body: JSON.stringify(body),
   });
 
   if (!resp.ok) {
     const errText = await resp.text();
-    throw new Error(`Gemini API error (${resp.status}): ${errText.slice(0, 500)}`);
+    const retryAfter = resp.headers.get("retry-after");
+    const hint = retryAfter ? ` retry-after: ${retryAfter}` : "";
+    // Surface the status + body so the classifier can tell 401/403 (bad key)
+    // apart from 404 (retired model), 429 (rate limit) and 503 (overloaded).
+    throw new Error(`Gemini API error (${resp.status})${hint}: ${errText.slice(0, 500)}`);
   }
 
   const data = (await resp.json()) as {
     candidates?: Array<{
-      content?: { parts?: Array<{ text?: string }> };
+      content?: { parts?: Array<{ text?: string; thought?: boolean }> };
       finishReason?: string;
+      finishMessage?: string;
     }>;
+    promptFeedback?: { blockReason?: string; blockReasonMessage?: string };
     usageMetadata?: { totalTokenCount?: number };
   };
 
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  const text = extractGeminiText(data);
   const tokens = data.usageMetadata?.totalTokenCount ?? 0;
 
   if (!text) {
-    throw new Error("Gemini returned empty response");
+    // Explain *why* the response had no text instead of a bare "empty response"
+    // that previously got misreported as an authentication failure.
+    const reason = data.promptFeedback?.blockReason
+      ? `blocked by Gemini (${data.promptFeedback.blockReason})`
+      : data.candidates?.[0]?.finishReason === "MAX_TOKENS"
+        ? "Gemini exhausted the output budget on internal reasoning — raise agent/providers[].maxTokens"
+        : data.candidates?.[0]?.finishReason
+          ? `finishReason=${data.candidates[0].finishReason}`
+          : "no candidates returned";
+    throw new Error(`Gemini returned an empty response for model "${model}": ${reason}`);
   }
 
   return { text, tokens };
@@ -206,7 +267,9 @@ async function callOpenAICompatible(
 
   if (!resp.ok) {
     const errText = await resp.text();
-    throw new Error(`LLM API error (${resp.status}): ${errText.slice(0, 500)}`);
+    const retryAfter = resp.headers.get("retry-after");
+    const hint = retryAfter ? ` retry-after: ${retryAfter}` : "";
+    throw new Error(`LLM API error (${resp.status})${hint}: ${errText.slice(0, 500)}`);
   }
 
   const data = (await resp.json()) as {
@@ -267,7 +330,8 @@ export async function runSimpleChat(options: SimpleChatOptions): Promise<SimpleC
   });
 
   const providers = getProviderChain(config);
-  const failures: Array<{ provider: string; error: string }> = [];
+  const failures: Array<{ provider: string; model: string; error: string; skipped: boolean }> = [];
+  const secrets = providers.map((p) => p.apiKey);
 
   for (const provider of providers) {
     const hasKey = Boolean(
@@ -277,17 +341,22 @@ export async function runSimpleChat(options: SimpleChatOptions): Promise<SimpleC
       log.info("simple chat: skipping provider (no key)", { provider: provider.type });
       failures.push({
         provider: provider.type,
-        error: `no API key set (needs ${provider.type.toUpperCase()}_API_KEY)`,
+        model: provider.model,
+        error: `skipped — no API key configured (needs ${provider.type.toUpperCase()}_API_KEY secret)`,
+        skipped: true,
       });
       continue;
     }
 
     try {
       const result = await retry(() => callLLM(provider, systemPrompt, userMessage), {
-        maxAttempts: 2,
-        name: `simple-chat ${provider.type}`,
+        maxAttempts: 4,
+        name: `simple-chat ${provider.type}/${provider.model}`,
         retryIf: isRetryableHttpError,
-        initialDelayMs: 2000,
+        // Honour Gemini's "Please retry in 43.8s" instead of hammering the API.
+        retryAfterMs: retryAfterMsFor,
+        initialDelayMs: 5000,
+        maxDelayMs: 60000,
       });
 
       log.info("simple chat succeeded", {
@@ -305,16 +374,29 @@ export async function runSimpleChat(options: SimpleChatOptions): Promise<SimpleC
       };
     } catch (err) {
       const errMsg = errorMessage(err);
-      failures.push({ provider: provider.type, error: errMsg });
+      const info = classifyProviderError(err);
+      failures.push({
+        provider: provider.type,
+        model: provider.model,
+        error: errMsg,
+        skipped: false,
+      });
       log.warn("simple chat: provider failed, trying next", {
         provider: provider.type,
-        error: errMsg,
+        model: provider.model,
+        kind: info.kind,
+        retryable: info.retryable,
+        error: redactSecrets(errMsg, secrets),
+        hint: providerErrorHint(info, provider.type),
       });
     }
   }
 
   const failureSummary = failures
-    .map((f, i) => `${i + 1}. \`${f.provider}\`: ${f.error}`)
+    .map((f, i) => {
+      const keyStatus = f.skipped ? "skipped" : "failed";
+      return `${i + 1}. \`${f.provider}/${f.model}\` (${keyStatus}): ${redactSecrets(f.error, secrets)}`;
+    })
     .join("\n");
 
   return {
