@@ -164,8 +164,9 @@
 - [ ] Firebase integration (optional)
 
 ### ⏳ Phase 10: Testing & Polish
-- [ ] Unit tests for utilities and calculations
-- [ ] Widget tests for key screens
+- [x] Unit tests for utilities and calculations (calculator, currency formatter,
+      Arabic shaper, quote totals, PDF generation, SQLite repositories + migration)
+- [x] Widget tests for key screens (home shell, component form, design form, quote form)
 - [ ] Integration tests
 - [ ] Performance optimization
 - [ ] App store preparation
@@ -180,11 +181,24 @@
 - **Currency/percent convention**: `Quote.discount` and `Quote.tax` are percentages
   (0-100), the discount is applied before the tax, and `Quote.totalPrice` always stores the
   value computed by `QuoteTotals.compute` — never type a total by hand.
-- Verification status: the sandbox this was written in has no Flutter SDK (all Google
-  download hosts are blocked), so `flutter analyze` / `flutter test` were **not** executed
-  here. Run them locally (or in CI) before releasing; the added tests cover the calculator,
-  the Arabic shaper, the currency formatter, quote totals, the SQLite round-trip + v4
-  migration, PDF generation and the quote form widget.
+## Verification status: VERIFIED ✅
+
+Measured on the maintainer's machine (Flutter at `/home/ahmd/Downloads/flutter`) at commit
+**`7fc61169`** on `arena/00a14152-solar-pro`:
+
+```
+flutter analyze --no-fatal-infos   ->   No issues found! (8.6s)
+flutter test                       ->   00:21 +70: All tests passed!
+```
+
+70 tests: calculator, currency formatter, Arabic shaper, quote totals, PDF generation,
+the SQLite round-trip and the v1->v3 / v3->v4 migrations, plus widget tests for the home
+shell, the component form, the design form and the quote form.
+
+Getting there took four runs (57 -> 63 -> 67 -> 70). The failures were worth it: they
+exposed three real bugs (the quote form never settling, the duplicate customer repository
+provider, and a migration that ignored `newVersion`) and four wrong test assumptions
+(documented above).
 
 ---
 
