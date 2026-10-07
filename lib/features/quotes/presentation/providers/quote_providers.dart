@@ -2,7 +2,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/database/database_helper.dart';
 import '../../../designs/data/models/design.dart';
-import '../../../designs/data/repositories/design_repository.dart';
 import '../../../designs/presentation/providers/design_providers.dart';
 import '../../../projects/data/models/project.dart';
 import '../../../projects/data/repositories/project_repository.dart';
