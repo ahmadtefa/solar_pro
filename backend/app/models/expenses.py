@@ -25,7 +25,6 @@ from app.core.enums import DocumentStatus
 from app.models.base import (
     Base,
     CompanyScoped,
-    JSONType,
     Money,
     Percent,
     Quantity,
@@ -157,6 +156,8 @@ class ExpenseClaim(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin, CompanyScop
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     rejected_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id"))
     rejection_reason: Mapped[str | None] = mapped_column(String(400))
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id"))
+    updated_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id"))
     payment_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("payments.id"))
     journal_entry_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("journal_entries.id"))
     workflow_instance_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True))

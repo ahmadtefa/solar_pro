@@ -19,7 +19,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.enums import AuditAction, NotificationChannel, NotificationType
+from app.core.enums import NotificationChannel, NotificationType
 from app.models.base import (
     Base,
     CompanyScoped,

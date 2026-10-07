@@ -13,15 +13,16 @@ Accounting strategy
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.enums import AuditAction, DocumentStatus, MovementType, ProductType
 from app.core.coercion import as_uuid
+from app.core.enums import DocumentStatus, MovementType, ProductType
 from app.core.errors import BusinessRuleError, NotFoundError, ValidationFailure
 from app.models.masterdata import Product, Supplier, SupplierPriceHistory, SupplierProduct
 from app.models.platform import Company, PaymentTerm
@@ -43,7 +44,6 @@ from app.models.purchasing import (
     SupplierQuotation,
     SupplierQuotationLine,
 )
-from app.services.audit_service import AuditContext
 from app.services.document_service import BaseDocumentService
 from app.services.inventory_service import InventoryService, StockMove
 from app.services.posting_service import EntryLine, money, quantity
@@ -612,7 +612,7 @@ class GoodsReceiptService(_PurchaseDocumentService):
         for row in rows:
             # Inbound cost is the purchase price net of line discount.
             row["unit_cost"] = row["unit_price"] - (
-                (row["unit_price"] * Decimal(row.get("discount_percent") or 0) / Decimal("100"))
+                row["unit_price"] * Decimal(row.get("discount_percent") or 0) / Decimal("100")
             )
         document_date = payload.get("document_date") or date.today()
         exchange_rate = self.resolve_exchange_rate(

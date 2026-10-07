@@ -3,24 +3,22 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any, Sequence
+from typing import Any
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import select
 
+from app.core.coercion import as_uuid
 from app.core.enums import (
     AuditAction,
     BankReconciliationStatus,
     DocumentStatus,
-    MovementType,
     PartyType,
     PaymentDirection,
     PaymentMethod,
-    PaymentStatus,
 )
-from app.core.coercion import as_uuid
 from app.core.errors import BusinessRuleError, NotFoundError, ValidationFailure
 from app.models.accounting import CustomerLedgerEntry, SupplierLedgerEntry
 from app.models.masterdata import Customer, Supplier
@@ -39,6 +37,7 @@ from app.models.treasury import (
 )
 from app.services.document_service import BaseDocumentService
 from app.services.inventory_service import money
+from app.services.posting_service import EntryLine
 
 
 def _to_decimal(value: Any, default: str = "0") -> Decimal:
@@ -231,8 +230,6 @@ class TreasuryService(BaseDocumentService):
 
     # -------------------------------------------------------------- posting
     def build_journal_lines(self, document: Payment, inventory_result: Any = None) -> list[EntryLine]:
-        from app.services.posting_service import EntryLine
-
         if document.cash_account_id:
             cash_account = self.get_cash_account(document.cash_account_id)
             treasury_gl_account_id = cash_account.account_id
@@ -545,8 +542,6 @@ class TreasuryTransferService(BaseDocumentService):
         raise NotFoundError("Treasury account not found")
 
     def build_journal_lines(self, document: TreasuryTransfer, inventory_result: Any = None) -> list[EntryLine]:
-        from app.services.posting_service import EntryLine
-
         source_gl = self._gl_account(
             cash_account_id=document.from_cash_account_id, bank_account_id=document.from_bank_account_id
         )
@@ -768,7 +763,7 @@ class BankReconciliationService(BaseDocumentService):
         reconciliation.notes = notes or reconciliation.notes
         self.db.flush()
         # Mark the matched journal lines as reconciled so they cannot be unposted.
-        from app.models.accounting import JournalEntry, JournalEntryLine
+        from app.models.accounting import JournalEntryLine
 
         payment_ids = [line.payment_id for line in reconciliation.lines if line.payment_id]
         if payment_ids:
@@ -870,8 +865,6 @@ class CurrencyRevaluationService(BaseDocumentService):
         return revaluation
 
     def build_journal_lines(self, document: CurrencyRevaluation, inventory_result: Any = None) -> list[EntryLine]:
-        from app.services.posting_service import EntryLine
-
         amount = money(document.gain_loss_amount)
         if amount == 0:
             return []

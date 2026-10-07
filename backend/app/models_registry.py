@@ -4,7 +4,6 @@
 imported before the metadata is inspected.
 """
 
-from app.models.base import Base  # noqa: F401
 from app.models.accounting import (  # noqa: F401
     Account,
     AccountingDimensionValue,
@@ -24,6 +23,7 @@ from app.models.assets import (  # noqa: F401
     AssetMaintenance,
     AssetTransfer,
 )
+from app.models.base import Base  # noqa: F401
 from app.models.crm import (  # noqa: F401
     Activity,
     Lead,

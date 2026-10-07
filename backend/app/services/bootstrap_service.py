@@ -8,9 +8,10 @@ country specific logic in the code base.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable, Sequence
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -471,14 +472,13 @@ class BootstrapService:
             terms[code] = term
         return terms
 
-    def _create_taxes(self, company: Company, taxes: Sequence[dict[str, Any]], *, chart_owner: "BootstrapService") -> dict[str, Tax]:
+    def _create_taxes(self, company: Company, taxes: Sequence[dict[str, Any]], *, chart_owner: BootstrapService) -> dict[str, Tax]:
         created: dict[str, Tax] = {}
-        chart = {
-            code: account_id
-            for code, account_id in self.db.execute(
+        chart = dict(
+            self.db.execute(
                 select(Account.code, Account.id).where(Account.company_id == company.id)
             ).all()
-        }
+        )
         for item in taxes:
             code = str(item["code"])
             existing = self.db.execute(

@@ -28,8 +28,8 @@ import jwt
 from app.core.config import settings
 from app.core.errors import AuthenticationError, ValidationFailure
 
-ACCESS_TOKEN_TYPE = "access"
-REFRESH_TOKEN_TYPE = "refresh"
+ACCESS_TOKEN_TYPE = "access"  # noqa: S105 - JWT token type, not a secret
+REFRESH_TOKEN_TYPE = "refresh"  # noqa: S105 - JWT token type, not a secret
 
 _PASSWORD_RULES = (
     (re.compile(r"[A-Z]"), "an uppercase letter"),

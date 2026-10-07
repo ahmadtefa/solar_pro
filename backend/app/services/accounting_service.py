@@ -6,11 +6,12 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Iterable, Sequence
+from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.coercion import as_uuid
 from app.core.enums import (
     AccountType,
     AuditAction,
@@ -19,24 +20,19 @@ from app.core.enums import (
     NormalBalance,
     PartyType,
 )
-from app.core.coercion import as_uuid
 from app.core.errors import BusinessRuleError, ConflictError, NotFoundError, ValidationFailure
 from app.models.accounting import (
     Account,
     AccountingPeriodClose,
-    CustomerLedgerEntry,
     JournalEntry,
     JournalEntryLine,
     PostingRule,
-    SupplierLedgerEntry,
 )
-from app.models.platform import Company, FiscalPeriod, FiscalYear
+from app.models.platform import FiscalPeriod, FiscalYear
 from app.models.treasury import BankAccount, CashAccount
 from app.services.audit_service import AuditContext, AuditService
 from app.services.document_service import BaseDocumentService
-from app.services.numbering_service import NumberingService
 from app.services.posting_service import (
-    COMPANY_DEFAULT_ACCOUNTS,
     NORMAL_BALANCE_FOR_TYPE,
     EntryLine,
     PostingService,

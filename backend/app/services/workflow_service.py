@@ -15,15 +15,15 @@ Highlights
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, Iterable, Sequence
+from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.enums import (
-    ApprovalStatus,
     AuditAction,
     NotificationType,
     WorkflowActionType,
@@ -31,7 +31,7 @@ from app.core.enums import (
     WorkflowStepType,
     WorkflowTriggerType,
 )
-from app.core.errors import BusinessRuleError, NotFoundError, PermissionDeniedError
+from app.core.errors import BusinessRuleError, PermissionDeniedError
 from app.models.hr import Employee
 from app.models.identity import Role, User, UserRole
 from app.models.workflow import (

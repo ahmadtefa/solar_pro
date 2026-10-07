@@ -28,8 +28,6 @@ from app.models.base import (
     JSONType,
     Money,
     Percent,
-    Quantity,
-    Rate,
     SoftDeleteMixin,
     TimestampMixin,
     UUIDMixin,

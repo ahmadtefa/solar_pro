@@ -5,13 +5,13 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any, Sequence
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.coercion import as_uuid
-from app.core.enums import AuditAction, DocumentStatus, PartyType, PaymentDirection, PaymentMethod
+from app.core.enums import DocumentStatus, PartyType, PaymentDirection, PaymentMethod
 from app.core.errors import BusinessRuleError, ConflictError, NotFoundError, ValidationFailure
 from app.models.expenses import (
     Budget,

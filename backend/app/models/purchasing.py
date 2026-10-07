@@ -21,11 +21,9 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.enums import DocumentStatus
 from app.models.base import (
     Base,
     CompanyScoped,
-    JSONType,
     Money,
     Percent,
     Quantity,

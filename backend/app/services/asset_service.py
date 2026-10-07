@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
-from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Sequence
+from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.coercion import as_uuid
-from app.core.enums import AssetStatus, AuditAction, DepreciationMethod, DocumentStatus
+from app.core.enums import AssetStatus, AuditAction, DepreciationMethod
 from app.core.errors import BusinessRuleError, ConflictError, NotFoundError, ValidationFailure
 from app.models.assets import (
     Asset,
@@ -22,7 +23,6 @@ from app.models.assets import (
     AssetTransfer,
 )
 from app.services.audit_service import AuditContext, AuditService
-from app.services.document_service import BaseDocumentService
 from app.services.posting_service import EntryLine, money
 
 ZERO = Decimal("0")

@@ -10,15 +10,15 @@ from __future__ import annotations
 import csv
 import io
 import uuid
+from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any
 
-from sqlalchemy import Select, and_, func, or_, select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from app.core.enums import AccountType, DocumentStatus, MovementType, PartyType
-from app.core.coercion import as_uuid
+from app.core.enums import AccountType, DocumentStatus
 from app.core.errors import BusinessRuleError, ValidationFailure
 from app.models.accounting import (
     Account,
@@ -27,14 +27,12 @@ from app.models.accounting import (
     JournalEntryLine,
     SupplierLedgerEntry,
 )
-from app.models.hr import AttendanceRecord, Employee, LeaveRequest, Payslip, PayrollRun
+from app.models.hr import AttendanceRecord, Employee, LeaveRequest, PayrollRun, Payslip
 from app.models.inventory import StockBalance, StockLedgerEntry
 from app.models.masterdata import Customer, Product, Supplier, Warehouse
-from app.models.platform import Company
 from app.models.projects import Project, TimesheetLine
-from app.models.purchasing import PurchaseInvoice, PurchaseOrder, SupplierQuotation
-from app.models.sales import CreditNote, SalesInvoice, SalesInvoiceLine, SalesOrder
-from app.models.treasury import BankAccount, CashAccount, Payment
+from app.models.purchasing import PurchaseInvoice
+from app.models.sales import SalesInvoice, SalesInvoiceLine
 from app.services.posting_service import NORMAL_BALANCE_FOR_TYPE, PostingService, money, quantity
 
 Column = dict[str, Any]

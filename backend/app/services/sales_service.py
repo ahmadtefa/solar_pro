@@ -16,25 +16,24 @@ Design decisions
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Sequence
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.coercion import as_uuid
 from app.core.enums import (
     AuditAction,
-    CashFlowCategory,
     DocumentStatus,
     MovementType,
-    PaymentDirection,
     PaymentMethod,
     PaymentStatus,
     ProductType,
     ShiftStatus,
 )
-from app.core.coercion import as_uuid
 from app.core.errors import BusinessRuleError, NotFoundError, ValidationFailure
 from app.models.masterdata import Customer, Product
 from app.models.platform import Company, PaymentTerm
@@ -56,11 +55,9 @@ from app.models.sales import (
     SalesOrderLine,
 )
 from app.models.treasury import CashAccount
-from app.services.audit_service import AuditContext
 from app.services.document_service import BaseDocumentService
 from app.services.inventory_service import InventoryService, StockMove
 from app.services.posting_service import EntryLine, money, quantity
-from app.services.tax_engine import TaxEngine
 
 
 def _products_map(db: Session, company_id: uuid.UUID, lines: Sequence[dict[str, Any]]) -> dict[uuid.UUID, Product]:

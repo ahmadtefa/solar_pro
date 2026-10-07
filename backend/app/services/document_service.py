@@ -10,19 +10,19 @@ fulfilment tracking.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable, Sequence
 from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.enums import AuditAction, DocumentStatus
 from app.core.coercion import as_decimal, as_uuid
-from app.models.platform import Company
+from app.core.enums import AuditAction, DocumentStatus
 from app.core.errors import BusinessRuleError, NotFoundError, PermissionDeniedError, ValidationFailure
 from app.models.accounting import JournalEntry
-from app.models.platform import ExchangeRate, Tax
+from app.models.platform import Company, ExchangeRate, Tax
 from app.services.audit_service import AuditContext, AuditService
 from app.services.numbering_service import NumberingService
 from app.services.posting_service import PostingService, money
@@ -99,7 +99,11 @@ class BaseDocumentService:
         stmt = select(self.model).where(self.model.company_id == self.company_id)
         if criteria:
             stmt = stmt.where(*criteria)
-        stmt = stmt.order_by(self.model.document_date.desc(), self.model.created_at.desc()).limit(limit)
+        # Most documents expose ``document_date``; models with a bespoke
+        # lifecycle (e.g. production orders) only guarantee ``created_at``.
+        document_date = getattr(self.model, "document_date", None)
+        ordering = [document_date.desc()] if document_date is not None else []
+        stmt = stmt.order_by(*ordering, self.model.created_at.desc()).limit(limit)
         return list(self.db.execute(stmt).scalars().unique().all())
 
     def next_number(self, *, branch_id: uuid.UUID | None = None) -> str:

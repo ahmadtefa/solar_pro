@@ -8,11 +8,13 @@ specific logic lives in the code.
 
 from __future__ import annotations
 
-import re
+import ast
+import operator
 import uuid
+from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime, time, timedelta
-from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Iterable, Sequence
+from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -22,7 +24,6 @@ from app.core.enums import (
     AttendanceStatus,
     AuditAction,
     ContractType,
-    DocumentStatus,
     EmployeeStatus,
     LeaveStatus,
     PaymentDirection,
@@ -47,15 +48,35 @@ from app.models.hr import (
     PayrollRun,
     Payslip,
     PayslipLine,
-    Position,
     SalaryComponent,
     WorkShift,
 )
-from app.models.platform import Branch, FiscalYear
+from app.models.platform import FiscalYear
 from app.services.audit_service import AuditContext, AuditService
 from app.services.document_service import BaseDocumentService
 from app.services.notification_service import NotificationService
-from app.services.posting_service import EntryLine, PostingService, money, quantity
+from app.services.posting_service import EntryLine, money, quantity
+
+#: Whitelisted operators/functions for configurable salary component formulas.
+_BINARY_OPERATORS: dict[type[Any], Callable[..., Any]] = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+    ast.Pow: operator.pow,
+}
+_UNARY_OPERATORS: dict[type[Any], Callable[..., Any]] = {
+    ast.UAdd: operator.pos,
+    ast.USub: operator.neg,
+}
+_FORMULA_FUNCTIONS: dict[str, Callable[..., Any]] = {
+    "min": min,
+    "max": max,
+    "abs": abs,
+    "round": round,
+}
 
 ZERO = Decimal("0")
 
@@ -900,8 +921,15 @@ class PayrollService(BaseDocumentService):
             return money(self._evaluate_formula(component.formula, basic=basic, daily_rate=daily_rate, summary=summary))
         return money(base_amount)
 
-    def _evaluate_formula(self, formula: str | None, *, basic: Decimal, daily_rate: Decimal, summary: dict[str, Any]) -> Decimal:
-        """Evaluate a safe arithmetic expression with a fixed variable set."""
+    def _evaluate_formula(
+        self, formula: str | None, *, basic: Decimal, daily_rate: Decimal, summary: dict[str, Any]
+    ) -> Decimal:
+        """Evaluate a payroll formula on a fixed, whitelisted variable set.
+
+        The expression is parsed with :mod:`ast` and walked manually, so only
+        arithmetic and ``min``/``max``/``abs``/``round`` can ever execute —
+        configuration can never inject code.
+        """
         if not formula:
             return ZERO
         variables = {
@@ -912,21 +940,41 @@ class PayrollService(BaseDocumentService):
             "overtime_minutes": Decimal(summary["overtime_minutes"]),
             "late_minutes": Decimal(summary["late_minutes"]),
         }
-        # Only arithmetic plus min()/max() on the declared variables is allowed.
-        if not re.fullmatch(r"[0-9\.\+\-\*/\(\) ,a-zA-Z_]+", formula):
-            raise ValidationFailure(f"Unsupported payroll formula: {formula}")
-        identifiers = set(re.findall(r"[a-zA-Z_][a-zA-Z0-9_]*", formula)) - {"min", "max", *variables}
-        if identifiers:
-            raise ValidationFailure(
-                f"Unsupported payroll formula variable(s): {', '.join(sorted(identifiers))}"
-            )
-        expression = formula
-        for name, value in variables.items():
-            expression = re.sub(rf"\b{name}\b", str(value), expression)
         try:
-            return _decimal(eval(expression, {"__builtins__": {}, "min": min, "max": max}, {}))
-        except Exception as exc:  # pragma: no cover - defensive
-            raise BusinessRuleError(f"Invalid payroll formula: {formula}") from exc
+            tree = ast.parse(formula, mode="eval")
+        except SyntaxError as exc:
+            raise ValidationFailure(f"Invalid payroll formula: {formula}") from exc
+        return money(self._evaluate_node(tree.body, variables, formula))
+
+    def _evaluate_node(self, node: ast.AST, variables: dict[str, Decimal], formula: str) -> Decimal:
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, bool) or not isinstance(node.value, (int, float)):
+                raise ValidationFailure(f"Unsupported literal in payroll formula: {formula}")
+            return Decimal(str(node.value))
+        if isinstance(node, ast.Name):
+            if node.id not in variables:
+                raise ValidationFailure(f"Unknown payroll formula variable '{node.id}' in: {formula}")
+            return Decimal(variables[node.id])
+        if isinstance(node, ast.BinOp):
+            binary = _BINARY_OPERATORS.get(type(node.op))
+            if binary is None:
+                raise ValidationFailure(f"Unsupported operator in payroll formula: {formula}")
+            left = self._evaluate_node(node.left, variables, formula)
+            right = self._evaluate_node(node.right, variables, formula)
+            if isinstance(node.op, (ast.Div, ast.FloorDiv, ast.Mod)) and right == 0:
+                raise BusinessRuleError(f"Division by zero in payroll formula: {formula}")
+            return money(binary(left, right))
+        if isinstance(node, ast.UnaryOp):
+            unary = _UNARY_OPERATORS.get(type(node.op))
+            if unary is None:
+                raise ValidationFailure(f"Unsupported operator in payroll formula: {formula}")
+            return money(unary(self._evaluate_node(node.operand, variables, formula)))
+        if isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name) or node.keywords or node.func.id not in _FORMULA_FUNCTIONS:
+                raise ValidationFailure(f"Unsupported function in payroll formula: {formula}")
+            arguments = [self._evaluate_node(argument, variables, formula) for argument in node.args]
+            return money(_FORMULA_FUNCTIONS[node.func.id](*arguments))
+        raise ValidationFailure(f"Unsupported expression in payroll formula: {formula}")
 
     def _apply_component(self, payslip: Payslip, component_type: str, amount: Decimal) -> None:
         if component_type == SalaryComponentType.ALLOWANCE.value:
@@ -1112,7 +1160,6 @@ class PayrollService(BaseDocumentService):
     def pay(self, run_id: uuid.UUID, *, cash_account_id: uuid.UUID | None = None, bank_account_id: uuid.UUID | None = None,
             payment_date: date | None = None, notes: str | None = None) -> Any:
         """Pay the net salaries and create the matching treasury payment."""
-        from app.models.treasury import CashAccount, Payment
         from app.services.treasury_service import TreasuryService
 
         run = self.get_document(run_id)

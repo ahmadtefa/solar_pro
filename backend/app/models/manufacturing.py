@@ -246,6 +246,8 @@ class ProductionOrder(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin, CompanyS
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     posted_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id"))
     posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id"))
+    updated_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id"))
     notes: Mapped[str | None] = mapped_column(Text)
     extra_data: Mapped[dict] = mapped_column(JSONType, default=dict, nullable=False)
 
@@ -263,6 +265,14 @@ class ProductionOrder(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin, CompanyS
     @property
     def remaining_quantity(self) -> Decimal:
         return Decimal(self.planned_quantity or 0) - Decimal(self.produced_quantity or 0)
+
+    @property
+    def document_date(self) -> date:
+        """Uniform document interface: planned (or actual) production date."""
+        if self.actual_start_date is not None:
+            start = self.actual_start_date
+            return start.date() if isinstance(start, datetime) else start
+        return self.planned_start_date or date.today()
 
     __table_args__ = (
         UniqueConstraint("company_id", "document_no", name="uq_production_orders_company_no"),

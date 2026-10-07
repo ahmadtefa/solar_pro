@@ -9,16 +9,16 @@ configured messages stay ``queued`` so nothing is silently lost.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.enums import NotificationChannel, NotificationType
-from app.models.identity import User
 from app.core.errors import NotFoundError
-from app.models.identity import Notification, NotificationPreference, OutboxMessage
+from app.models.identity import Notification, NotificationPreference, OutboxMessage, User
 
 
 class NotificationService:

@@ -8,6 +8,7 @@ company is a genuine, fully posted dataset.
 from __future__ import annotations
 
 import random
+import random as _random_module
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
@@ -34,6 +35,9 @@ from app.services.inventory_service import InventoryService, StockMove
 from app.services.posting_service import money
 from app.services.purchasing_service import GoodsReceiptService, PurchaseInvoiceService, PurchaseOrderService
 from app.services.sales_service import DeliveryNoteService, SalesInvoiceService, SalesOrderService
+
+#: Deterministic generator so demo transactions are reproducible run to run.
+SEED_RANDOM = _random_module.Random(20260101)  # noqa: S311 - deterministic demo data, not security
 
 DEMO_COMPANY_CODE = "DEMO"
 DEMO_USERS: list[dict[str, Any]] = [
@@ -453,11 +457,11 @@ class SeedService:
         for index in range(orders):
             customer = customers[index % len(customers)]
             lines = []
-            for product in random.sample(stock_products, k=min(2, len(stock_products))):
-                lines.append({"product_id": str(product.id), "quantity": str(random.choice([2, 3, 5])),
+            for product in SEED_RANDOM.sample(stock_products, k=min(2, len(stock_products))):
+                lines.append({"product_id": str(product.id), "quantity": str(SEED_RANDOM.choice([2, 3, 5])),
                               "unit_price": str(product.sales_price)})
             if service_products:
-                service = random.choice(service_products)
+                service = SEED_RANDOM.choice(service_products)
                 lines.append({"product_id": str(service.id), "quantity": "1", "unit_price": str(service.sales_price)})
             order = sales_service.create(
                 {
@@ -509,11 +513,11 @@ class SeedService:
         for index in range(purchases):
             supplier = suppliers[index % len(suppliers)]
             lines = []
-            for product in random.sample(stock_products, k=min(3, len(stock_products))):
+            for product in SEED_RANDOM.sample(stock_products, k=min(3, len(stock_products))):
                 lines.append(
                     {
                         "product_id": str(product.id),
-                        "quantity": str(random.choice([4, 6, 10])),
+                        "quantity": str(SEED_RANDOM.choice([4, 6, 10])),
                         "unit_price": str(product.purchase_price),
                     }
                 )
@@ -551,7 +555,7 @@ class SeedService:
                             "goods_receipt_line_id": str(receipt_line.id),
                             "quantity": str(line.quantity),
                         }
-                        for line, receipt_line in zip(order.lines, receipt.lines)
+                        for line, receipt_line in zip(order.lines, receipt.lines, strict=False)
                     ],
                 },
             )

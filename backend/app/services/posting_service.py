@@ -14,10 +14,11 @@ Responsibilities
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -659,17 +660,17 @@ class PostingService:
         total = money(getattr(document, "total_amount", 0))
         paid = money(getattr(document, "paid_amount", 0))
         balance = money(total - paid)
-        setattr(document, "balance_amount", balance)
+        document.balance_amount = balance
         if paid <= 0:
-            setattr(document, "payment_status", "unpaid")
+            document.payment_status = "unpaid"
         elif balance > Decimal("0.01"):
-            setattr(document, "payment_status", "partially_paid")
+            document.payment_status = "partially_paid"
         elif balance < Decimal("-0.01"):
-            setattr(document, "payment_status", "overpaid")
+            document.payment_status = "overpaid"
         else:
-            setattr(document, "payment_status", "paid")
+            document.payment_status = "paid"
         if hasattr(document, "is_fully_paid"):
-            setattr(document, "is_fully_paid", getattr(document, "payment_status") == "paid")
+            document.is_fully_paid = document.payment_status == "paid"
         self.db.flush()
 
     # ------------------------------------------------------------- reporting

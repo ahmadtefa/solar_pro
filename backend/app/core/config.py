@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     db_max_overflow: int = 20
 
     # ------------------------------------------------------------------ auth
-    secret_key: str = "insecure-development-secret-change-me"
+    secret_key: str = "insecure-development-secret-change-me"  # noqa: S105 - dev default, validated
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
     refresh_token_expire_days: int = 14
@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------- bootstrap
     seed_demo_data: bool = False
     bootstrap_admin_email: str = "admin@kayan.local"
-    bootstrap_admin_password: str = "Admin@12345"
+    bootstrap_admin_password: str = "Admin@12345"  # noqa: S105 - dev default, rotatable
 
     # -------------------------------------------------------------- business
     default_currency_code: str = "EGP"
@@ -136,7 +136,7 @@ class Settings(BaseSettings):
         """Refuse to boot in production with development defaults."""
         problems: list[str] = []
         if self.is_production:
-            if self.secret_key == "insecure-development-secret-change-me" or len(self.secret_key) < 32:
+            if self.secret_key == "insecure-development-secret-change-me" or len(self.secret_key) < 32:  # noqa: S105
                 problems.append("SECRET_KEY must be set to a strong value (>=32 chars) in production")
             if self.debug:
                 problems.append("DEBUG must be false in production")

@@ -9,7 +9,9 @@ from __future__ import annotations
 from enum import Enum
 
 
-class StrEnum(str, Enum):
+# StrEnum is intentionally built on Enum: it adds ``values()``/``has()`` helpers used by
+# the validators.  (UP042 only suggests the stdlib class, which lacks those helpers.)
+class StrEnum(str, Enum):  # noqa: UP042
     def __str__(self) -> str:  # pragma: no cover - convenience
         return self.value
 
@@ -417,6 +419,7 @@ class AuditAction(StrEnum):
     RESTORE_BACKUP = "restore_backup"
     PRINT = "print"
     VIEW = "view"
+    CLOSE = "close"
 
 
 class ImportStatus(StrEnum):
