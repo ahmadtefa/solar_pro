@@ -15,6 +15,9 @@ import '../../features/projects/data/models/purchase.dart';
 import '../../features/settings/data/models/app_settings.dart';
 
 class DatabaseHelper {
+  /// Current schema version. Keep in sync with [AppConstants.databaseVersion].
+  static const int _databaseVersion = 4;
+
   static DatabaseHelper? _instance;
   static Database? _database;
 
@@ -88,7 +91,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 3,
+      version: _databaseVersion,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
       onConfigure: (db) async {
@@ -121,6 +124,19 @@ class DatabaseHelper {
       if (!await _hasColumn(db, 'designs', 'panelId')) {
         await db.execute(
           'ALTER TABLE designs ADD COLUMN panelId INTEGER REFERENCES components(id) ON DELETE SET NULL',
+        );
+      }
+    }
+    if (oldVersion < 4) {
+      // Quote items gained a unit price so a quote can be priced line by line.
+      if (!await _hasColumn(db, 'quote_items', 'unitPrice')) {
+        await db.execute(
+          'ALTER TABLE quote_items ADD COLUMN unitPrice REAL DEFAULT 0',
+        );
+      }
+      if (!await _hasColumn(db, 'quote_items', 'unit')) {
+        await db.execute(
+          "ALTER TABLE quote_items ADD COLUMN unit TEXT DEFAULT 'وحدة'",
         );
       }
     }
@@ -206,6 +222,8 @@ class DatabaseHelper {
         quoteId INTEGER NOT NULL,
         description TEXT NOT NULL,
         quantity INTEGER DEFAULT 1,
+        unitPrice REAL DEFAULT 0,
+        unit TEXT DEFAULT 'وحدة',
         originCountry TEXT,
         warranty TEXT,
         orderIndex INTEGER DEFAULT 0,

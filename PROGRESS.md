@@ -121,11 +121,30 @@
 - [x] home_screen.dart updated with 4th tab: التصميمات
 - [x] flutter analyze: 0 errors, 8 info warnings (deprecated value property)
 
+### ✅ Phase 6: Presentation Layer - Quotes (COMPLETED)
+- [x] `QuoteItem` model gained `unitPrice` + `unit` (line total = quantity × unit price)
+- [x] Database schema v4 + idempotent migration (`unitPrice REAL DEFAULT 0`, `unit TEXT DEFAULT 'وحدة'`)
+- [x] `AppConstants.databaseVersion` synced with `DatabaseHelper` (bug: it was stuck at 1)
+- [x] `lib/features/quotes/domain/quote_totals.dart` — pure totalling logic (subtotal → discount% → tax%)
+- [x] `quote_providers.dart` — `QuotesNotifier` with `saveQuote` / `updateStatus` / `deleteQuote` / `convertToProject`,
+      plus `quoteByIdProvider`, `quoteItemsProvider`, `quoteTermsProvider`,
+      `designsForCustomerProvider`, `projectForQuoteProvider`
+- [x] `quotes_list_screen.dart` — search + status filter chips, edit/delete, FAB
+- [x] `quote_form_screen.dart` — customer → design, dynamic items editor, terms editor,
+      "fill from design" (panels + inverter + labour from `AppSettings.defaultPricePerKw`),
+      discount/tax, live totals, create + edit
+- [x] `quote_details_screen.dart` — parties, system summary, items, totals, terms,
+      status menu, PDF share/print, **convert quote → project**
+- [x] `quote_status_badge.dart` — Arabic labels, colours and icons for the 5 statuses
+- [x] Home screen: new **عروض الأسعار** tab
+- [x] Arabic PDF: `core/utils/arabic_text.dart` (Unicode-derived contextual shaper incl. LAM-ALEF
+      ligature) + `core/pdf/quote_pdf.dart` + Amiri fonts bundled in `assets/fonts/`
+- [x] Tests: `solar_calculator_test`, `arabic_text_test`, `currency_formatter_test`,
+      `quote_pdf_test`, `quote_totals_test`, `database_quote_test`, `quote_form_screen_test`
+- [x] **Bug fix**: `test/widget_test.dart` was testing a splash screen that no longer exists —
+      rewritten as a real home-screen smoke test
+
 ## Pending Phases
-- [ ] Quote list screen
-- [ ] Quote detail screen
-- [ ] Quote generator (PDF)
-- [ ] Quote converter to project
 
 ### ⏳ Phase 7: Presentation Layer - Projects
 - [ ] Project list screen
@@ -152,8 +171,17 @@
 - [ ] App store preparation
 
 ## Notes for Next Session
-- Phase 5A complete: Component management fully functional (panels + inverters)
-- App now has bottom navigation: العملاء / المكونات / الإعدادات
-- kW↔HP auto-conversion works in component form
-- flutter analyze: 0 errors, 0 warnings
-- Ready to start Phase 5B: Design screens (uses components + solar calculator to build system designs)
+- Phase 6 complete: quotes can be created, edited, printed to an Arabic PDF and converted to projects.
+- Bottom navigation is now: العملاء / المكونات / التصميمات / عروض الأسعار / الإعدادات
+- **Arabic in PDFs**: the `pdf` package has no contextual analyser, so `ArabicText.reshape()`
+  pre-shapes text into Arabic Presentation Forms before drawing. Any new PDF must use
+  `_text()` from `quote_pdf.dart` (or call `ArabicText.reshape` itself), otherwise the words
+  come out as detached letters.
+- **Currency/percent convention**: `Quote.discount` and `Quote.tax` are percentages
+  (0-100), the discount is applied before the tax, and `Quote.totalPrice` always stores the
+  value computed by `QuoteTotals.compute` — never type a total by hand.
+- Verification status: the sandbox this was written in has no Flutter SDK (all Google
+  download hosts are blocked), so `flutter analyze` / `flutter test` were **not** executed
+  here. Run them locally (or in CI) before releasing; the added tests cover the calculator,
+  the Arabic shaper, the currency formatter, quote totals, the SQLite round-trip + v4
+  migration, PDF generation and the quote form widget.

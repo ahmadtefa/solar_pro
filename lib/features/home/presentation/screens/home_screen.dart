@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../customers/presentation/screens/customers_list_screen.dart';
 import '../../../designs/presentation/screens/components_list_screen.dart';
 import '../../../designs/presentation/screens/designs_list_screen.dart';
+import '../../../quotes/presentation/screens/quotes_list_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -19,6 +20,7 @@ class _HomeScreenState extends State<HomeScreen> {
     CustomersListScreen(),
     ComponentsListScreen(),
     DesignsListScreen(),
+    QuotesListScreen(),
     _SettingsPlaceholder(),
   ];
 
@@ -44,6 +46,11 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icon(Icons.design_services_outlined),
             selectedIcon: Icon(Icons.design_services),
             label: 'التصميمات',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.request_quote_outlined),
+            selectedIcon: Icon(Icons.request_quote),
+            label: 'عروض الأسعار',
           ),
           NavigationDestination(
             icon: Icon(Icons.settings_outlined),

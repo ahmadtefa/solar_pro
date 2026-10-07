@@ -8,7 +8,9 @@ class AppConstants {
 
   // Database
   static const String databaseName = 'solar_pro.db';
-  static const int databaseVersion = 1;
+
+  /// Keep in sync with `DatabaseHelper._databaseVersion`.
+  static const int databaseVersion = 4;
 
   // API Configuration (if needed)
   static const String baseUrl = '';
