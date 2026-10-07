@@ -252,3 +252,15 @@ not in the app):
   "Bad state: No element".
 - A `DropdownButtonFormField` does not build its items until the menu is opened.
 - `MaterialApp` installs its own ltr `Directionality` above the app's rtl one.
+
+### Third run: 67 passed / 3 failed — the last two Flutter subtleties
+
+- **`Finder.first` throws when nothing matches.** `dragUntilVisible` re-evaluates
+  its target finder on every iteration, so passing `find.text(...).first` blew up
+  with "Bad state: No element" before it could even scroll. Scroll targets are
+  plain finders; `.first` is only safe *after* the widget is known to exist.
+- **A multi-line `TextFormField` owns a *vertical* `Scrollable` too**
+  (`maxLines: 3`, `restorationId: "editable"`, axis down), so filtering on
+  `axisDirection == AxisDirection.down` was not enough in the design form. The
+  only Scrollable without a `restorationId` is the `ListView`'s own one, which is
+  now what every test scrolls.

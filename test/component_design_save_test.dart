@@ -475,14 +475,14 @@ void main() {
       // scrollable finder is ambiguous here.
       await tester.dragUntilVisible(
         find.text('حفظ المكوّن'),
-        // Every TextFormField carries its own horizontal Scrollable
-        // (restorationId "editable"), so pick the form's vertical one.
+        // Every TextFormField carries its own Scrollable (restorationId
+        // "editable"), and the multi-line ones are vertical too, so pick the
+        // ListView's own one: it is the only Scrollable without a
+        // restorationId.
         find.descendant(
           of: find.byType(ListView),
           matching: find.byWidgetPredicate(
-            (widget) =>
-                widget is Scrollable &&
-                widget.axisDirection == AxisDirection.down,
+            (widget) => widget is Scrollable && widget.restorationId == null,
           ),
         ),
         const Offset(0, -200),
@@ -522,14 +522,14 @@ void main() {
       // scrollable finder is ambiguous here.
       await tester.dragUntilVisible(
         find.text('حفظ المكوّن'),
-        // Every TextFormField carries its own horizontal Scrollable
-        // (restorationId "editable"), so pick the form's vertical one.
+        // Every TextFormField carries its own Scrollable (restorationId
+        // "editable"), and the multi-line ones are vertical too, so pick the
+        // ListView's own one: it is the only Scrollable without a
+        // restorationId.
         find.descendant(
           of: find.byType(ListView),
           matching: find.byWidgetPredicate(
-            (widget) =>
-                widget is Scrollable &&
-                widget.axisDirection == AxisDirection.down,
+            (widget) => widget is Scrollable && widget.restorationId == null,
           ),
         ),
         const Offset(0, -200),
@@ -619,14 +619,14 @@ void main() {
       // not in the tree until the form is scrolled to the bottom.
       await tester.dragUntilVisible(
         find.text('تحديث'),
-        // Every TextFormField carries its own horizontal Scrollable
-        // (restorationId "editable"), so pick the form's vertical one.
+        // Every TextFormField carries its own Scrollable (restorationId
+        // "editable"), and the multi-line ones are vertical too, so pick the
+        // ListView's own one: it is the only Scrollable without a
+        // restorationId.
         find.descendant(
           of: find.byType(ListView),
           matching: find.byWidgetPredicate(
-            (widget) =>
-                widget is Scrollable &&
-                widget.axisDirection == AxisDirection.down,
+            (widget) => widget is Scrollable && widget.restorationId == null,
           ),
         ),
         const Offset(0, -200),

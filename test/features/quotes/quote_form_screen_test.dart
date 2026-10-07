@@ -268,21 +268,24 @@ void main() {
         matching: find.byType(TextFormField),
       );
 
-  /// The form's vertical Scrollable.
+  /// The form's own Scrollable.
   ///
-  /// Every TextFormField also owns a horizontal one (restorationId
-  /// "editable"), so a plain `find.byType(Scrollable)` matches half a dozen
-  /// widgets here.
+  /// Every TextFormField also owns one (restorationId "editable") - horizontal
+  /// for single-line fields and vertical for `maxLines: 3` ones - so neither
+  /// `find.byType(Scrollable)` nor a filter on the axis alone is unique here.
+  /// Only the ListView's own Scrollable has no restorationId.
   Finder formScrollable() => find.descendant(
         of: find.byType(ListView),
         matching: find.byWidgetPredicate(
-          (widget) =>
-              widget is Scrollable && widget.axisDirection == AxisDirection.down,
+          (widget) => widget is Scrollable && widget.restorationId == null,
         ),
       );
 
   /// The form is one big lazily built ListView: anything below the fold simply
   /// does not exist yet, so it has to be scrolled into view first.
+  ///
+  /// `target` must be a plain finder: `dragUntilVisible` keeps re-evaluating it,
+  /// and a `.first` finder throws instead of reporting "not found yet".
   Future<void> scrollTo(WidgetTester tester, Finder target) async {
     await tester.dragUntilVisible(
       target,
@@ -402,11 +405,14 @@ void main() {
     await tester.enterText(field('الكمية'), '1');
     await tester.enterText(field('سعر الوحدة (ج.م)'), '100000');
     // The totals card lives below the fold of the lazily built ListView.
-    await scrollTo(tester, find.text('الخصم %').first);
+    await scrollTo(tester, find.text('الخصم %'));
     await tester.enterText(field('الخصم %'), '10');
+    await scrollTo(tester, find.text('الضريبة %'));
     await tester.enterText(field('الضريبة %'), '5');
     await tester.pumpAndSettle();
 
+    // The submit button is the very last child of the ListView.
+    await scrollTo(tester, find.text('إنشاء عرض السعر'));
     await tester.tap(find.text('إنشاء عرض السعر'));
     await tester.pumpAndSettle();
 
@@ -437,7 +443,7 @@ void main() {
     await pumpForm(tester);
 
     // The terms section is below the fold too.
-    await scrollTo(tester, find.text('الشروط الافتراضية').first);
+    await scrollTo(tester, find.text('الشروط الافتراضية'));
     await tester.tap(find.text('الشروط الافتراضية'));
     await tester.pumpAndSettle();
 
