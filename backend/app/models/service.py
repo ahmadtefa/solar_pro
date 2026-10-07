@@ -92,8 +92,8 @@ class Ticket(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin, CompanyScoped):
 
     @property
     def document_date(self) -> object:
-        """Uniform document interface: the business date of this record."""
-        return self.reported_date
+        """Uniform document interface: when the ticket was raised."""
+        return self.created_at.date() if self.created_at else date.today()
 
     @property
     def document_no(self) -> str:
@@ -370,6 +370,7 @@ class Warranty(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin, CompanyScoped):
     claims_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_claim_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(24), default=DocumentStatus.DRAFT.value, nullable=False)
+    extra_data: Mapped[dict] = mapped_column(JSONType, default=dict, nullable=False)
 
     __table_args__ = (
         UniqueConstraint("company_id", "warranty_no", name="uq_warranties_company_no"),
