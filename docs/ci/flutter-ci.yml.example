@@ -1,0 +1,54 @@
+# Flutter CI — copy this file to `.github/workflows/flutter.yml`
+#
+# The branch this work was authored on could not be pushed with a file inside
+# `.github/workflows/` (the GitHub App used by the agent has no `workflows`
+# permission), so the workflow is shipped here instead.
+#
+#   mkdir -p .github/workflows
+#   cp docs/ci/flutter-ci.yml.example .github/workflows/flutter.yml
+#   git add .github/workflows/flutter.yml && git commit -m "ci: flutter analyze + test"
+#
+# What it does on every push and pull request:
+#   flutter pub get
+#   flutter analyze --no-fatal-infos
+#   flutter test --reporter expanded
+# The unit tests cover the solar calculator, the Arabic shaper, the currency
+# formatter, quote totals, the SQLite round-trip (in-memory, sqflite_common_ffi),
+# PDF generation and the quote form widget.
+
+name: Flutter CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    name: Analyze & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+
+      - name: Test
+        run: flutter test --reporter expanded
