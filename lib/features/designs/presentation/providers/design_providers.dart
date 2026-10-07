@@ -4,8 +4,12 @@ import '../../data/models/design.dart';
 import '../../../customers/data/models/customer.dart';
 import '../../data/repositories/design_repository.dart';
 import '../../data/repositories/design_repository_impl.dart';
-import '../../../customers/data/repositories/customer_repository.dart';
-import '../../../customers/data/repositories/customer_repository_impl.dart';
+// One single provider for the customer repository: `design_providers` used to
+// declare a second, independent `customerRepositoryProvider`, so overriding one
+// of them never affected the screens that read the other. The shared one is
+// imported *and* re-exported, so screens that import this file keep working.
+import '../../../customers/presentation/providers/customer_providers.dart';
+export '../../../customers/presentation/providers/customer_providers.dart';
 import '../../../../core/database/database_helper.dart';
 
 // ---------------------------------------------------------------------------
@@ -14,10 +18,6 @@ import '../../../../core/database/database_helper.dart';
 
 final designRepositoryProvider = Provider<DesignRepository>((ref) {
   return DesignRepositoryImpl(DatabaseHelper.instance);
-});
-
-final customerRepositoryProvider = Provider<CustomerRepository>((ref) {
-  return CustomerRepositoryImpl(DatabaseHelper.instance);
 });
 
 // ---------------------------------------------------------------------------

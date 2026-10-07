@@ -59,3 +59,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  assets:
+    # Amiri is bundled for the Arabic PDFs: the fonts embedded in the `pdf`
+    # package (Helvetica/Times/...) have no Arabic glyphs at all.
+    - assets/fonts/
+

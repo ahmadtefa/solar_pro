@@ -37,6 +37,11 @@ class Quote {
     required this.createdAt,
   });
 
+  /// Human friendly reference shown in the UI and on the PDF, e.g. `Q-2026-0007`.
+  /// Before the quote is inserted (no id yet) the id part reads `0000`.
+  String get displayNumber =>
+      'Q-${createdAt.year}-${(id ?? 0).toString().padLeft(4, '0')}';
+
   factory Quote.create({
     required int designId,
     required int customerId,

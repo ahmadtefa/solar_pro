@@ -1,8 +1,8 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+// `DatabaseException` also exists in sqflite_common: keep the app one.
+import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide DatabaseException;
 
 import 'package:solar_pro/core/database/database_helper.dart';
 import 'package:solar_pro/core/errors/app_exception.dart';
@@ -263,7 +263,10 @@ void main() {
       db = await databaseFactoryFfi.openDatabase(
         inMemoryDatabasePath,
         options: OpenDatabaseOptions(
-          version: 3,
+          // Fresh database per test: sqflite would otherwise return the same
+          // in-memory instance from its single-instance cache.
+          singleInstance: false,
+          version: 4,
           onConfigure: (d) async => d.execute('PRAGMA foreign_keys = ON'),
           onCreate: (d, _) async => DatabaseHelper.instance.createTablesForTest(d),
         ),
@@ -374,7 +377,11 @@ void main() {
     });
 
     test('safe migration from v1 to v3 adds price_per_watt and panelId without losing data', () async {
-      final legacyDb = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+      // Not `setUp()`'s database: `singleInstance: false` bypasses the cache.
+      final legacyDb = await databaseFactoryFfi.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
       await legacyDb.execute('''
         CREATE TABLE components (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -463,7 +470,23 @@ void main() {
       await tester.enterText(fields.at(3), '550');
       await tester.enterText(fields.at(4), '49.8');
 
-      await tester.scrollUntilVisible(find.text('حفظ المكوّن'), 200);
+      // Scroll the form's own Scrollable explicitly: the caller screen stays
+      // mounted underneath the pushed route, so the default (tree wide)
+      // scrollable finder is ambiguous here.
+      await tester.dragUntilVisible(
+        find.text('حفظ المكوّن'),
+        // Every TextFormField carries its own Scrollable (restorationId
+        // "editable"), and the multi-line ones are vertical too, so pick the
+        // ListView's own one: it is the only Scrollable without a
+        // restorationId.
+        find.descendant(
+          of: find.byType(ListView),
+          matching: find.byWidgetPredicate(
+            (widget) => widget is Scrollable && widget.restorationId == null,
+          ),
+        ),
+        const Offset(0, -200),
+      );
       await tester.tap(find.text('حفظ المكوّن'));
       await tester.pumpAndSettle();
 
@@ -494,7 +517,23 @@ void main() {
       await tester.enterText(fields.at(3), '550');
       await tester.enterText(fields.at(4), '49.8');
 
-      await tester.scrollUntilVisible(find.text('حفظ المكوّن'), 200);
+      // Scroll the form's own Scrollable explicitly: the caller screen stays
+      // mounted underneath the pushed route, so the default (tree wide)
+      // scrollable finder is ambiguous here.
+      await tester.dragUntilVisible(
+        find.text('حفظ المكوّن'),
+        // Every TextFormField carries its own Scrollable (restorationId
+        // "editable"), and the multi-line ones are vertical too, so pick the
+        // ListView's own one: it is the only Scrollable without a
+        // restorationId.
+        find.descendant(
+          of: find.byType(ListView),
+          matching: find.byWidgetPredicate(
+            (widget) => widget is Scrollable && widget.restorationId == null,
+          ),
+        ),
+        const Offset(0, -200),
+      );
       await tester.tap(find.text('حفظ المكوّن'));
       await tester.pumpAndSettle();
 
@@ -567,9 +606,34 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(DesignFormScreen), findsOneWidget);
+
+      // Surface any exception thrown while building the form instead of
+      // silently rendering Flutter's red error widget.
+      final treeError = tester.takeException();
+      if (treeError != null) {
+        // ignore: avoid_print
+        print('DesignFormScreen build error: $treeError');
+      }
+
+      // The save button is the last child of a lazily built ListView, so it is
+      // not in the tree until the form is scrolled to the bottom.
+      await tester.dragUntilVisible(
+        find.text('تحديث'),
+        // Every TextFormField carries its own Scrollable (restorationId
+        // "editable"), and the multi-line ones are vertical too, so pick the
+        // ListView's own one: it is the only Scrollable without a
+        // restorationId.
+        find.descendant(
+          of: find.byType(ListView),
+          matching: find.byWidgetPredicate(
+            (widget) => widget is Scrollable && widget.restorationId == null,
+          ),
+        ),
+        const Offset(0, -200),
+      );
+
       expect(find.text('تحديث'), findsOneWidget);
 
-      await tester.scrollUntilVisible(find.text('تحديث'), 200);
       await tester.tap(find.text('تحديث'));
       await tester.pumpAndSettle();
 

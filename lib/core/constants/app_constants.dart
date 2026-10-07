@@ -8,7 +8,9 @@ class AppConstants {
 
   // Database
   static const String databaseName = 'solar_pro.db';
-  static const int databaseVersion = 1;
+
+  /// Keep in sync with `DatabaseHelper._databaseVersion`.
+  static const int databaseVersion = 4;
 
   // API Configuration (if needed)
   static const String baseUrl = '';
@@ -24,8 +26,10 @@ class AppConstants {
   static const double averageSunHours = 5.0; // Average peak sun hours
 
   // Currency
-  static const String defaultCurrency = 'SAR';
-  static const String currencySymbol = 'ر.س';
+  // The whole app prices in EGP and prints 'ج.م' next to every amount, so the
+  // constants have to say the same thing (they used to claim SAR / 'ر.س').
+  static const String defaultCurrency = 'EGP';
+  static const String currencySymbol = 'ج.م';
 
   // Default Values
   static const double defaultLatitude = 24.7136; // Riyadh, Saudi Arabia
