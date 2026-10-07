@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from decimal import Decimal
+from decimal import Decimal  # noqa: F401 - re-exported for models
 
 from sqlalchemy import JSON, CheckConstraint, ForeignKey, Index, Numeric, String, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
@@ -18,7 +18,8 @@ from app.core.database import (  # noqa: F401  (re-exported for models)
     UUIDMixin,
 )
 
-#: JSON column that uses the native JSONB type on PostgreSQL.
+#: JSON column that uses the native JSONB type on PostgreSQL.  Values stored in
+#: metadata payloads must already be JSON safe - use app.core.jsonutil.json_safe.
 JSONType = JSON().with_variant(JSONB, "postgresql")
 
 #: Monetary amounts - 4 decimals keeps unit prices and FX rates accurate.
