@@ -263,13 +263,22 @@ class TreasuryService(BaseDocumentService):
                     exchange_rate=Decimal(document.exchange_rate or 1),
                 )
             )
-            receivable = self.posting.resolve_account("ar", document_type=self.document_type, fallback_code="1210")
+            if document.party_type == PartyType.CUSTOMER.value:
+                settlement = self.posting.resolve_account(
+                    "ar", document_type=self.document_type, fallback_code="1210"
+                )
+            elif document.payment_account_id:
+                settlement = self.posting.account_by_id(document.payment_account_id)
+            else:
+                settlement = self.posting.resolve_account(
+                    "ar", document_type=self.document_type, fallback_code="1210"
+                )
             lines.append(
                 EntryLine(
-                    account_id=receivable.id,
+                    account_id=settlement.id,
                     credit=amount,
-                    description=f"Customer settlement {document.document_no}",
-                    party_type=PartyType.CUSTOMER.value,
+                    description=f"Settlement {document.document_no}",
+                    party_type=document.party_type,
                     party_id=document.party_id,
                     branch_id=document.branch_id,
                     currency_code=document.currency_code,
@@ -277,13 +286,22 @@ class TreasuryService(BaseDocumentService):
                 )
             )
         else:
-            payable = self.posting.resolve_account("ap", document_type=self.document_type, fallback_code="2110")
+            if document.party_type == PartyType.SUPPLIER.value:
+                settlement = self.posting.resolve_account(
+                    "ap", document_type=self.document_type, fallback_code="2110"
+                )
+            elif document.payment_account_id:
+                settlement = self.posting.account_by_id(document.payment_account_id)
+            else:
+                settlement = self.posting.resolve_account(
+                    "ap", document_type=self.document_type, fallback_code="2110"
+                )
             lines.append(
                 EntryLine(
-                    account_id=payable.id,
+                    account_id=settlement.id,
                     debit=amount,
-                    description=f"Supplier settlement {document.document_no}",
-                    party_type=PartyType.SUPPLIER.value,
+                    description=f"Settlement {document.document_no}",
+                    party_type=document.party_type,
                     party_id=document.party_id,
                     branch_id=document.branch_id,
                     currency_code=document.currency_code,
@@ -311,7 +329,6 @@ class TreasuryService(BaseDocumentService):
                     credit=net_cash,
                     description=f"Payment {document.document_no}",
                     branch_id=document.branch_id,
-                    cash_flow_category=_cash_flow_category(document),
                 )
             )
         return lines
@@ -328,21 +345,28 @@ class TreasuryService(BaseDocumentService):
         self.db.flush()
 
     def _snapshot(self, payment: Payment) -> None:
+        """Record a cash-flow snapshot for cash/bank (or GL) accounts."""
+        if payment.cash_account_id:
+            account_kind = "cash"
+            balance = self.get_cash_account(payment.cash_account_id).current_balance
+        elif payment.bank_account_id:
+            account_kind = "bank"
+            balance = self.get_bank_account(payment.bank_account_id).current_balance
+        elif payment.payment_account_id:
+            account_kind = "gl"
+            debit, credit = self.posting.account_balance(payment.payment_account_id)
+            balance = money(debit - credit)
+        else:
+            return
         snapshot = CashFlowSnapshot(
             company_id=self.company_id,
             snapshot_date=payment.document_date,
-            account_kind="cash" if payment.cash_account_id else "bank",
+            account_kind=account_kind,
             cash_account_id=payment.cash_account_id,
             bank_account_id=payment.bank_account_id,
             inflow=money(payment.amount) if payment.direction == PaymentDirection.INBOUND.value else money(0),
             outflow=money(payment.amount) if payment.direction == PaymentDirection.OUTBOUND.value else money(0),
-            closing_balance=money(
-                (
-                    self.get_cash_account(payment.cash_account_id).current_balance
-                    if payment.cash_account_id
-                    else self.get_bank_account(payment.bank_account_id).current_balance
-                )
-            ),
+            closing_balance=money(balance),
         )
         self.db.add(snapshot)
 
@@ -863,7 +887,3 @@ class CurrencyRevaluationService(BaseDocumentService):
             EntryLine(account_id=loss.id, debit=abs(amount), description="FX loss on revaluation"),
             EntryLine(account_id=receivable.id, credit=abs(amount), description="FX loss on revaluation"),
         ]
-
-
-def _cash_flow_category(document: Payment) -> str:
-    return "operating"

@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.core.enums import AuditAction, DocumentStatus
 from app.core.coercion import as_decimal, as_uuid
+from app.models.platform import Company
 from app.core.errors import BusinessRuleError, NotFoundError, PermissionDeniedError, ValidationFailure
 from app.models.accounting import JournalEntry
 from app.models.platform import ExchangeRate, Tax
@@ -273,6 +274,13 @@ class BaseDocumentService:
                 status=status,
             )
 
+    def company(self) -> Company:
+        """The company (tenant) row this service operates on."""
+        company = self.db.get(Company, self.company_id)
+        if company is None:
+            raise NotFoundError("Company not found")
+        return company
+
     def can_transition(self, document: Any, target: str) -> bool:
         current = getattr(document, "status", DocumentStatus.DRAFT.value)
         return target in ALLOWED_TRANSITIONS.get(current, set())
@@ -397,7 +405,11 @@ class BaseDocumentService:
             document_type=self.document_type,
             document_id=document.id,
             document_no=document.document_no,
-            document_date=document.document_date,
+            document_date=getattr(document, "document_date", None)
+            or getattr(document, "entry_date", None)
+            or getattr(document, "run_date", None)
+            or getattr(document, "claim_date", None)
+            or date.today(),
             description=getattr(document, "description", None)
             or f"{self.document_type.replace('_', ' ').title()} {document.document_no}",
             branch_id=getattr(document, "branch_id", None),

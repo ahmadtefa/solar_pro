@@ -196,6 +196,7 @@ class AuditService:
         entity: Any,
         *,
         entity_type: str | None = None,
+        label: str | None = None,
         remarks: str | None = None,
         new_values: dict[str, Any] | None = None,
     ) -> None:
@@ -203,7 +204,7 @@ class AuditService:
             action=action,
             entity_type=entity_type or type(entity).__name__,
             entity_id=getattr(entity, "id", None),
-            entity_label=self._label(entity),
+            entity_label=label or self._label(entity),
             remarks=remarks,
             new_values=new_values,
         )

@@ -455,6 +455,16 @@ class PayrollPeriod(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin, CompanySco
 class PayrollRun(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin, CompanyScoped):
     __tablename__ = "payroll_runs"
 
+    @property
+    def document_date(self) -> object:
+        """Uniform document interface: the business date of this record."""
+        return self.run_date
+
+    @property
+    def document_no(self) -> str:
+        """Uniform document interface: this record's natural number."""
+        return self.run_no
+
     company_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True
     )

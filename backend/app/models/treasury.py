@@ -223,6 +223,11 @@ class Cheque(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin, CompanyScoped):
 
     __tablename__ = "cheques"
 
+    @property
+    def document_no(self) -> str:
+        """Uniform document interface: this record's natural number."""
+        return self.cheque_number
+
     company_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True
     )

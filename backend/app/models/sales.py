@@ -345,6 +345,11 @@ class PosShift(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin, CompanyScoped):
 
     __tablename__ = "pos_shifts"
 
+    @property
+    def document_no(self) -> str:
+        """Uniform document interface: this record's natural number."""
+        return self.shift_no
+
     company_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True
     )

@@ -83,6 +83,16 @@ class JournalEntry(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin, CompanyScop
 
     __tablename__ = "journal_entries"
 
+    @property
+    def document_date(self) -> object:
+        """Uniform document interface: the business date of this record."""
+        return self.entry_date
+
+    @property
+    def document_no(self) -> str:
+        """Uniform document interface: this record's natural number."""
+        return self.entry_no
+
     company_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True
     )

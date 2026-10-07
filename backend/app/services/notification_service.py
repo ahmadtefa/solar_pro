@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.enums import NotificationChannel, NotificationType
+from app.models.identity import User
 from app.core.errors import NotFoundError
 from app.models.identity import Notification, NotificationPreference, OutboxMessage
 
@@ -42,8 +43,17 @@ class NotificationService:
         send_external: bool = False,
     ) -> list[Notification]:
         created: list[Notification] = []
-        for user_id in dict.fromkeys(user_ids):
-            if user_id is None:
+        candidates = [user_id for user_id in dict.fromkeys(user_ids) if user_id is not None]
+        if not candidates:
+            return created
+        # Only real platform users can hold notifications (employees are not users).
+        valid_ids = {
+            row for (row,) in self.db.execute(
+                select(User.id).where(User.id.in_(candidates), User.deleted_at.is_(None))
+            ).all()
+        }
+        for user_id in candidates:
+            if user_id not in valid_ids:
                 continue
             if not self._channel_enabled(user_id, module or "core", channel):
                 continue
