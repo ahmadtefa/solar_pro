@@ -1,0 +1,85 @@
+# ---------------------------------------------------------------------------
+# Kayan ERP - full stack for a single host.
+#
+#   cp .env.example .env      # then edit the secrets
+#   docker compose -f infrastructure/docker-compose.yml up -d --build
+#   docker compose -f infrastructure/docker-compose.yml exec backend \
+#       alembic upgrade head
+#
+# Services: PostgreSQL, the FastAPI backend, the Flutter Web bundle served by
+# Nginx (which also reverse-proxies /api and the notification websocket).
+# ---------------------------------------------------------------------------
+name: kayan-erp
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-kayan}
+      POSTGRES_USER: ${POSTGRES_USER:-kayan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kayan} -d ${POSTGRES_DB:-kayan}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [kayan]
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      DEBUG: ${DEBUG:-false}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-kayan}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-kayan}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-14}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      CORS_ALLOW_CREDENTIALS: ${CORS_ALLOW_CREDENTIALS:-true}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_REQUESTS_PER_MINUTE: ${RATE_LIMIT_REQUESTS_PER_MINUTE:-600}
+      LOGIN_RATE_LIMIT_PER_MINUTE: ${LOGIN_RATE_LIMIT_PER_MINUTE:-20}
+      STORAGE_DIR: /app/storage
+      BACKUP_DIR: /app/backups
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-false}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@kayan.local}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-Admin@12345}
+    volumes:
+      - backend_storage:/app/storage
+      - backend_backups:/app/backups
+    expose:
+      - "8000"
+    networks: [kayan]
+
+  # Builds the Flutter Web bundle and serves it (with the API proxy) via Nginx.
+  web:
+    build:
+      context: ..
+      dockerfile: infrastructure/web.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      API_BASE_URL: ${API_BASE_URL:-/api/v1}
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+    networks: [kayan]
+
+volumes:
+  db_data:
+  backend_storage:
+  backend_backups:
+
+networks:
+  kayan:
+    driver: bridge

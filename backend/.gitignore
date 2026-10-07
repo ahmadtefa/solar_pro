@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage*
+# Local environment / secrets (never commit)
+.env
+.env.local
+.env.*.local
+# Runtime data
+storage/
+uploads/
+backups/
+*.db
+*.sqlite3
+*.log

@@ -1,0 +1,46 @@
+# --- secrets and local configuration -------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.db
+*.sqlite3
+*.egg-info/
+
+# --- runtime data ---------------------------------------------------------
+backend/storage/
+backend/backups/
+storage/
+backups/
+*.log
+
+# --- flutter / dart -------------------------------------------------------
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+coverage/
+**/doc/api/
+app.*.symbols
+app.*.map.json
+android/app/debug/
+android/app/profile/
+android/app/release/
+.idea/
+*.iml
+
+# --- editor and OS --------------------------------------------------------
+.vscode/
+.DS_Store
+Thumbs.db
