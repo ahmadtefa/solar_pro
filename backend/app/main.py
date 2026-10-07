@@ -71,7 +71,7 @@ ROUTERS: tuple[tuple[Any, str, str], ...] = (
     (manufacturing, "", "Manufacturing"),
     (projects, "", "Projects"),
     (service, "", "Service"),
-    (workflow, "", "Workflow"),
+    (workflow, "/workflow", "Workflow"),
     (notifications, "/notifications", "Notifications"),
     (attachments, "/attachments", "Attachments"),
     (reports, "/reports", "Reports"),

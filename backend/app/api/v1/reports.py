@@ -47,7 +47,7 @@ def run_report(
     payload: dict[str, Any] = Body(default={}),
 ) -> dict[str, Any]:
     current.require("core.report.view")
-    service = ReportService(db, current.company_id, user_id=current.id)
+    service = ReportService(db, current.company_id)
     params = _default_period(dict(payload or {}))
     result: ReportResult = service.run(code, params)
     return result.to_dict()
@@ -71,7 +71,7 @@ def run_report_get(
         params["date_to"] = date_to
     if branch_id:
         params["branch_id"] = str(branch_id)
-    result: ReportResult = ReportService(db, current.company_id, user_id=current.id).run(
+    result: ReportResult = ReportService(db, current.company_id).run(
         code, _default_period(params)
     )
     return result.to_dict()
@@ -179,7 +179,7 @@ def run_saved(
     definition = dict(row.definition_json or {})
     params = dict(definition.get("parameters") or definition)
     params.update(payload or {})
-    result: ReportResult = ReportService(db, current.company_id, user_id=current.id).run(
+    result: ReportResult = ReportService(db, current.company_id).run(
         definition.get("report_code", row.code), _default_period(params)
     )
     return result.to_dict()

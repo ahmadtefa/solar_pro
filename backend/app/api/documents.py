@@ -268,10 +268,11 @@ def build_document_router(spec: DocumentSpec) -> APIRouter:
                 payload: dict[str, Any] = Body(default={}),
             ) -> dict[str, Any]:
                 current.require(permission("unpost"))
+                reason = (payload or {}).get("reason")
+                if not reason:
+                    raise ValidationFailure("A reason is required to unpost (reverse) this document")
                 service = make_service(db, current, request)
-                document = service.unpost(
-                    load(service, document_id), reason=payload.get("reason") or "Correction"
-                )
+                document = service.unpost(load(service, document_id), reason=reason)
                 db.flush()
                 return detail(document)
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -162,7 +162,7 @@ def _step_from_payload(
         skip_if_same_user=bool(payload.get("skip_if_same_user", False)),
         timeout_hours=payload.get("timeout_hours"),
         on_timeout_action=payload.get("on_timeout_action"),
-        notify_on_enter=bool(payload.get("notify_on_enter", True)),
+        notification_template=payload.get("notification_template"),
     )
 
 
@@ -321,7 +321,12 @@ def create_delegation(payload: dict[str, Any], db: DB, current: CurrentUserDep) 
         delegator_id=current.id,
         delegate_id=to_user_id,
         start_date=date_type.fromisoformat(payload["start_date"]) if payload.get("start_date") else date_type.today(),
-        end_date=date_type.fromisoformat(payload["end_date"]) if payload.get("end_date") else None,
+        end_date=(
+            date_type.fromisoformat(payload["end_date"])
+            if payload.get("end_date")
+            else (date_type.fromisoformat(payload["start_date"]) if payload.get("start_date") else date_type.today())
+            + timedelta(days=int(payload.get("days") or 14))
+        ),
         document_types=payload.get("document_types"),
         max_amount=_decimal(payload.get("max_amount")),
         reason=payload.get("reason"),
