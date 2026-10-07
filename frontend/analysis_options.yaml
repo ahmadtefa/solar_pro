@@ -1,0 +1,20 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-raw-types: true
+  errors:
+    # Printed warnings must never be ignored in CI.
+    todo: info
+
+linter:
+  rules:
+    always_declare_return_types: true
+    avoid_print: true
+    prefer_final_locals: true
+    prefer_single_quotes: true
+    require_trailing_commas: true
+    sort_child_properties_last: true
+    unnecessary_await_in_return: true
+    use_super_parameters: true
