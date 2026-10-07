@@ -30,6 +30,7 @@ from app.api.v1 import (
     crm,
     dashboards,
     data_tools,
+    downloads,
     expenses,
     hr,
     inventory,
@@ -78,6 +79,7 @@ ROUTERS: tuple[tuple[Any, str, str], ...] = (
     (dashboards, "/dashboards", "Dashboards"),
     (search, "/search", "Search"),
     (data_tools, "/data-tools", "Import, export and backup"),
+    (downloads, "/downloads", "Downloads and printing"),
     (ws, "", "Realtime"),
 )
 
