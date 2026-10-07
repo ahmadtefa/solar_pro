@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+// `DatabaseException` also exists in sqflite_common: keep the app one.
+import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide DatabaseException;
 
 import 'package:solar_pro/core/database/database_helper.dart';
 import 'package:solar_pro/core/errors/app_exception.dart';

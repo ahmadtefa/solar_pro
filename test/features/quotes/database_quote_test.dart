@@ -55,7 +55,7 @@ void main() {
       DatabaseHelper.setTestDatabase(null);
     });
 
-    Future<int> _seedDesign() async {
+    Future<int> seedDesign() async {
       final customerId = await DatabaseHelper.instance.insertCustomer(
         Customer.create(name: 'شركة النور', phone: '01012345678'),
       );
@@ -74,7 +74,7 @@ void main() {
 
     test('stores a quote with its items and terms and reads them back', () async {
       if (!_ffiAvailable) return;
-      final designId = await _seedDesign();
+      final designId = await seedDesign();
       final design = await DatabaseHelper.instance.getDesign(designId);
 
       final quoteId = await quoteRepo.insert(
@@ -126,7 +126,7 @@ void main() {
 
     test('updating a quote keeps its children', () async {
       if (!_ffiAvailable) return;
-      final designId = await _seedDesign();
+      final designId = await seedDesign();
       final quoteId = await quoteRepo.insert(
         Quote.create(designId: designId, customerId: 1),
       );
@@ -149,7 +149,7 @@ void main() {
 
     test('deleting a quote cascades to its items and terms', () async {
       if (!_ffiAvailable) return;
-      final designId = await _seedDesign();
+      final designId = await seedDesign();
       final quoteId = await quoteRepo.insert(
         Quote.create(designId: designId, customerId: 1),
       );
@@ -170,7 +170,7 @@ void main() {
 
     test('a quote can be turned into exactly one project', () async {
       if (!_ffiAvailable) return;
-      final designId = await _seedDesign();
+      final designId = await seedDesign();
       final quoteId = await quoteRepo.insert(
         Quote.create(designId: designId, customerId: 1),
       );

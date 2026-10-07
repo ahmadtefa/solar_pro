@@ -333,7 +333,7 @@ class _QuoteDetailsScreenState extends ConsumerState<QuoteDetailsScreen> {
             Expanded(
               child: Text(
                 'تم تحويل العرض إلى مشروع${id != null ? ' رقم #$id' : ''}'
-                '${status != null ? ' (الحالة: ${_projectStatusLabel(status)})' : ''}',
+                ' (الحالة: ${_projectStatusLabel(status)})',
               ),
             ),
           ],
@@ -499,7 +499,8 @@ class _QuoteDetailsScreenState extends ConsumerState<QuoteDetailsScreen> {
 
     if (confirmed != true) return;
     await ref.read(quotesListProvider.notifier).deleteQuote(quote.id!);
-    if (mounted) Navigator.of(context).pop(true);
+    // `context` is the parameter of this helper, so it needs its own check.
+    if (context.mounted) Navigator.of(context).pop(true);
   }
 
   QuotePdfData _pdfData({

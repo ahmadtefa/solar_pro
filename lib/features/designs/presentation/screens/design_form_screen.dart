@@ -217,8 +217,8 @@ class _DesignFormScreenState extends ConsumerState<DesignFormScreen> {
 
   @override
   Widget build(BuildContext context) {
-    ref.listen<AsyncValue<List<Component>>>(panelsListProvider, (_, __) => _calculate());
-    ref.listen<AsyncValue<List<Component>>>(invertersListProvider, (_, __) => _calculate());
+    ref.listen<AsyncValue<List<Component>>>(panelsListProvider, (_, _) => _calculate());
+    ref.listen<AsyncValue<List<Component>>>(invertersListProvider, (_, _) => _calculate());
 
     return Scaffold(
       appBar: AppBar(

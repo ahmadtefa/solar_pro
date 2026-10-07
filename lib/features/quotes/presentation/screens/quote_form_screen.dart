@@ -12,6 +12,7 @@ import '../../data/models/quote_item.dart';
 import '../../data/models/term.dart';
 import '../../domain/quote_totals.dart';
 import '../providers/quote_providers.dart';
+import '../widgets/quote_status_badge.dart';
 
 /// Units the user can pick for a quote line.
 const List<String> kQuoteUnits = <String>[
@@ -39,13 +40,12 @@ class _LineFields {
     String unitPrice = '',
     String originCountry = '',
     String warranty = '',
-    String unit = 'وحدة',
+    this.unit = 'وحدة',
   })  : descriptionController = TextEditingController(text: description),
         quantityController = TextEditingController(text: quantity),
         unitPriceController = TextEditingController(text: unitPrice),
         originController = TextEditingController(text: originCountry),
-        warrantyController = TextEditingController(text: warranty),
-        unit = unit;
+        warrantyController = TextEditingController(text: warranty);
 
   final TextEditingController descriptionController;
   final TextEditingController quantityController;
