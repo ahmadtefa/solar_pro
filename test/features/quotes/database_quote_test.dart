@@ -38,6 +38,9 @@ void main() {
       db = await databaseFactoryFfi.openDatabase(
         inMemoryDatabasePath,
         options: OpenDatabaseOptions(
+          // Every test gets its own database: sqflite would otherwise hand the
+          // same in-memory instance back from its single-instance cache.
+          singleInstance: false,
           version: 4,
           onConfigure: (d) async => d.execute('PRAGMA foreign_keys = ON'),
           onCreate: (d, _) async => DatabaseHelper.instance.createTablesForTest(d),
@@ -191,8 +194,12 @@ void main() {
 
     test('migration to v4 adds unitPrice and unit to quote_items', () async {
       if (!_ffiAvailable) return;
-      final legacyDb =
-          await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+      // `singleInstance: false` so this is a brand new database and not the one
+      // the `setUp` above just created (sqflite caches it by path).
+      final legacyDb = await databaseFactoryFfi.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
       await legacyDb.execute('''
         CREATE TABLE quote_items (
           id INTEGER PRIMARY KEY AUTOINCREMENT,

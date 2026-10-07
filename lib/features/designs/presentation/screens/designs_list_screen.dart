@@ -28,7 +28,7 @@ class _DesignsListScreenState extends ConsumerState<DesignsListScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('حذف التصميم'),
         content: Text(
-          'هل أنت متأكد من حذف تصميم "${design.createdAt.toLocal()}"؟\nلا يمكن التراجع عن هذه العملية.',
+          'هل أنت متأكد من حذف تصميم "${_formatDate(design.createdAt)}"؟\nلا يمكن التراجع عن هذه العملية.',
         ),
         actions: [
           TextButton(

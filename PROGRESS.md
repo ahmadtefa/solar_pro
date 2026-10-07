@@ -185,3 +185,49 @@
   here. Run them locally (or in CI) before releasing; the added tests cover the calculator,
   the Arabic shaper, the currency formatter, quote totals, the SQLite round-trip + v4
   migration, PDF generation and the quote form widget.
+
+---
+
+## Audit & test-fixing pass (branch `arena/00a14152-solar-pro`)
+
+First real `flutter analyze` + `flutter test` run on this branch (70 tests):
+`flutter analyze --no-fatal-infos` → **No issues found!**, `flutter test` → **57 passed / 13 failed**.
+The 13 failures were triaged and fixed one by one; they were *real* bugs, not bad luck.
+
+### Real app bug found by the widget tests
+- **`quote_form_screen.dart` — the form never settled.** The customer list is read from
+  SQLite, so it arrives *after* the first frame, but the first customer was preselected from a
+  single `addPostFrameCallback` in `initState()`. When it fired too early no customer was ever
+  selected, and the design section below it rendered `AsyncValue.loading()` → an endless
+  `LinearProgressIndicator` → `pumpAndSettle` timed out (6 tests). Fixed by
+  `ref.listen`-ing the customer provider (reactive preselect) and by showing a hint
+  (`اختر العميل لعرض تصميماته.`) instead of a spinner while nothing is selected.
+
+### Audit findings fixed
+- **Two independent `customerRepositoryProvider`s** (one in `customer_providers.dart`, one in
+  `design_providers.dart`). Overriding one in a test never affected the screens that read the
+  other. `design_providers.dart` now imports *and* re-exports the shared one, so every
+  importer keeps compiling and there is a single instance.
+- **Dead file** `features/customers/presentation/screens/customer_list_item.dart` (empty,
+  unreferenced) — deleted.
+- **Currency constants lied**: `AppConstants.defaultCurrency`/`currencySymbol` said
+  `SAR` / `ر.س` while the whole app prices in `ج.م`. Now `EGP` / `ج.م` (nothing read them).
+- **Raw `DateTime` in a user-facing string**: the delete-confirmation dialog in
+  `designs_list_screen.dart` printed `design.createdAt.toLocal()`; it now uses the same
+  `_formatDate()` helper as the list tile.
+
+### Test fixes (the assumptions were wrong, the app was right)
+- `widget_test.dart`: tab labels are matched *inside* the `NavigationBar` now — `العملاء` is
+  both a tab label and the customers AppBar title, so the flat `find.text` matched 2 widgets.
+  The RTL check reads `Directionality.of(...)` from the home screen instead of picking the
+  outermost `Directionality`, which is the ltr one `MaterialApp` installs.
+- `database_quote_test.dart` / `component_design_save_test.dart`: every in-memory database is
+  opened with `singleInstance: false`. sqflite caches databases by path, so a migration test
+  that opens `:memory:` right after `setUp` got the *same* (already created) database and the
+  `CREATE TABLE` failed with "table ... already exists".
+- `component_design_save_test.dart`: `scrollUntilVisible` now gets an explicit
+  `scrollable:` finder — the default one searches the whole tree, and the caller screen stays
+  mounted under a pushed route, so it matched more than one `Scrollable` ("Too many elements").
+  The design-form test uses `dragUntilVisible` and scrolls the save button into view before
+  asserting: that button is the last child of a lazily built `ListView`, so it does not exist
+  until the form is scrolled.

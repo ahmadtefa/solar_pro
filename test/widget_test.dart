@@ -10,7 +10,8 @@ void main() {
     await tester.pumpWidget(const ProviderScope(child: SolarProApp()));
     await tester.pump();
 
-    expect(find.byType(NavigationBar), findsOneWidget);
+    final navigationBar = find.byType(NavigationBar);
+    expect(navigationBar, findsOneWidget);
     for (final label in <String>[
       'العملاء',
       'المكونات',
@@ -18,7 +19,13 @@ void main() {
       'عروض الأسعار',
       'الإعدادات',
     ]) {
-      expect(find.text(label), findsOneWidget, reason: 'missing tab: $label');
+      // Scope the lookup to the navigation bar: the same string is also used
+      // as the AppBar title of the tab that happens to be on screen.
+      expect(
+        find.descendant(of: navigationBar, matching: find.text(label)),
+        findsOneWidget,
+        reason: 'missing tab: $label',
+      );
     }
   });
 
@@ -27,9 +34,11 @@ void main() {
     await tester.pumpWidget(const ProviderScope(child: SolarProApp()));
     await tester.pump();
 
-    final directionality =
-        tester.widget<Directionality>(find.byType(Directionality).first);
-    expect(directionality.textDirection, TextDirection.rtl);
+    // `MaterialApp` installs its own (ltr) Directionality; the app wraps
+    // everything in an rtl one below it, so read the direction the home screen
+    // actually inherits instead of the outermost widget.
+    final direction = Directionality.of(tester.element(find.byType(NavigationBar)));
+    expect(direction, TextDirection.rtl);
   });
 
   testWidgets('switching tabs keeps the customer list on screen',

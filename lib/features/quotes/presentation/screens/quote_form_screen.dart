@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/utils/currency_formatter.dart';
+import '../../../customers/data/models/customer.dart';
 import '../../../designs/data/models/component.dart';
 import '../../../designs/data/models/design.dart';
 import '../../../designs/presentation/providers/component_providers.dart';
@@ -131,8 +132,6 @@ class _QuoteFormScreenState extends ConsumerState<QuoteFormScreen> {
       if (!mounted) return;
       if (_isEditing) {
         _loadChildren();
-      } else if (_selectedCustomerId == null) {
-        _preselectFirstCustomer();
       }
     });
   }
@@ -166,12 +165,6 @@ class _QuoteFormScreenState extends ConsumerState<QuoteFormScreen> {
       if (_terms.isEmpty) _terms.add(TextEditingController());
       _childrenLoaded = true;
     });
-  }
-
-  void _preselectFirstCustomer() {
-    final customers = ref.read(customersForDropdownProvider).valueOrNull;
-    if (customers == null || customers.isEmpty) return;
-    setState(() => _selectedCustomerId = customers.first.id);
   }
 
   @override
@@ -390,9 +383,28 @@ class _QuoteFormScreenState extends ConsumerState<QuoteFormScreen> {
   @override
   Widget build(BuildContext context) {
     final customersAsync = ref.watch(customersForDropdownProvider);
-    final designsAsync = _selectedCustomerId == null
-        ? const AsyncValue<List<Design>>.loading()
-        : ref.watch(designsForCustomerProvider(_selectedCustomerId!));
+
+    // Customers are read from SQLite, so they usually arrive *after* the first
+    // frame. Preselecting once from a post-frame callback left the design
+    // section stuck on a spinner forever; listening keeps the first customer
+    // selected as soon as the list is actually available.
+    ref.listen<AsyncValue<List<Customer>>>(customersForDropdownProvider, (
+      previous,
+      next,
+    ) {
+      if (_isEditing || _selectedCustomerId != null) return;
+      final customers = next.valueOrNull;
+      if (customers == null || customers.isEmpty) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _selectedCustomerId != null) return;
+        setState(() => _selectedCustomerId = customers.first.id);
+      });
+    });
+
+    final customerId = _selectedCustomerId;
+    final designsAsync = customerId == null
+        ? const AsyncValue<List<Design>>.data(<Design>[])
+        : ref.watch(designsForCustomerProvider(customerId));
 
     return Scaffold(
       appBar: AppBar(
@@ -454,60 +466,66 @@ class _QuoteFormScreenState extends ConsumerState<QuoteFormScreen> {
               },
             ),
             const SizedBox(height: 12),
-            designsAsync.when(
-              loading: () => const LinearProgressIndicator(),
-              error: (error, _) => Text('خطأ في تحميل التصميمات: $error'),
-              data: (designs) {
-                if (designs.isEmpty) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8),
-                    child: Text('لا توجد تصميمات لهذا العميل.'),
-                  );
-                }
-                return Column(
-                  children: [
-                    DropdownButtonFormField<int>(
-                      initialValue: _visibleId(
-                        designs.map((d) => d.id),
-                        _selectedDesignId,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'التصميم',
-                        prefixIcon: Icon(Icons.design_services),
-                        border: OutlineInputBorder(),
-                      ),
-                      items: [
-                        for (final design in designs)
-                          DropdownMenuItem<int>(
-                            value: design.id,
-                            child: Text(
-                              '${design.capacityKw} ك.و · ${design.panelCount} لوح · ${_formatDate(design.createdAt)}',
+            if (_selectedCustomerId == null)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text('اختر العميل لعرض تصميماته.'),
+              )
+            else
+              designsAsync.when(
+                loading: () => const LinearProgressIndicator(),
+                error: (error, _) => Text('خطأ في تحميل التصميمات: $error'),
+                data: (designs) {
+                  if (designs.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Text('لا توجد تصميمات لهذا العميل.'),
+                    );
+                  }
+                  return Column(
+                    children: [
+                      DropdownButtonFormField<int>(
+                        initialValue: _visibleId(
+                          designs.map((d) => d.id),
+                          _selectedDesignId,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'التصميم',
+                          prefixIcon: Icon(Icons.design_services),
+                          border: OutlineInputBorder(),
+                        ),
+                        items: [
+                          for (final design in designs)
+                            DropdownMenuItem<int>(
+                              value: design.id,
+                              child: Text(
+                                '${design.capacityKw} ك.و · ${design.panelCount} لوح · ${_formatDate(design.createdAt)}',
+                              ),
                             ),
-                          ),
-                      ],
-                      onChanged: (value) =>
-                          setState(() => _selectedDesignId = value),
-                      validator: (value) => value == null ? 'اختر التصميم' : null,
-                    ),
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: AlignmentDirectional.centerStart,
-                      child: OutlinedButton.icon(
-                        icon: const Icon(Icons.auto_fix_high),
-                        label: const Text('تعبئة الأصناف من التصميم'),
-                        onPressed: () {
-                          final design = designs.firstWhere(
-                            (d) => d.id == _selectedDesignId,
-                            orElse: () => designs.first,
-                          );
-                          _fillFromDesign(design);
-                        },
+                        ],
+                        onChanged: (value) =>
+                            setState(() => _selectedDesignId = value),
+                        validator: (value) => value == null ? 'اختر التصميم' : null,
                       ),
-                    ),
-                  ],
-                );
-              },
-            ),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.auto_fix_high),
+                          label: const Text('تعبئة الأصناف من التصميم'),
+                          onPressed: () {
+                            final design = designs.firstWhere(
+                              (d) => d.id == _selectedDesignId,
+                              orElse: () => designs.first,
+                            );
+                            _fillFromDesign(design);
+                          },
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
             const SizedBox(height: 20),
             _sectionTitle(context, 'الأصناف'),
             for (var i = 0; i < _items.length; i++) _buildItemCard(i),

@@ -263,7 +263,10 @@ void main() {
       db = await databaseFactoryFfi.openDatabase(
         inMemoryDatabasePath,
         options: OpenDatabaseOptions(
-          version: 3,
+          // Fresh database per test: sqflite would otherwise return the same
+          // in-memory instance from its single-instance cache.
+          singleInstance: false,
+          version: 4,
           onConfigure: (d) async => d.execute('PRAGMA foreign_keys = ON'),
           onCreate: (d, _) async => DatabaseHelper.instance.createTablesForTest(d),
         ),
@@ -374,7 +377,11 @@ void main() {
     });
 
     test('safe migration from v1 to v3 adds price_per_watt and panelId without losing data', () async {
-      final legacyDb = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+      // Not `setUp()`'s database: `singleInstance: false` bypasses the cache.
+      final legacyDb = await databaseFactoryFfi.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
       await legacyDb.execute('''
         CREATE TABLE components (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -463,7 +470,17 @@ void main() {
       await tester.enterText(fields.at(3), '550');
       await tester.enterText(fields.at(4), '49.8');
 
-      await tester.scrollUntilVisible(find.text('حفظ المكوّن'), 200);
+      // Scroll the form's own Scrollable explicitly: the caller screen stays
+      // mounted underneath the pushed route, so the default (tree wide)
+      // scrollable finder is ambiguous here.
+      await tester.dragUntilVisible(
+        find.text('حفظ المكوّن'),
+        find.descendant(
+          of: find.byType(ListView),
+          matching: find.byType(Scrollable),
+        ),
+        const Offset(0, -200),
+      );
       await tester.tap(find.text('حفظ المكوّن'));
       await tester.pumpAndSettle();
 
@@ -494,7 +511,17 @@ void main() {
       await tester.enterText(fields.at(3), '550');
       await tester.enterText(fields.at(4), '49.8');
 
-      await tester.scrollUntilVisible(find.text('حفظ المكوّن'), 200);
+      // Scroll the form's own Scrollable explicitly: the caller screen stays
+      // mounted underneath the pushed route, so the default (tree wide)
+      // scrollable finder is ambiguous here.
+      await tester.dragUntilVisible(
+        find.text('حفظ المكوّن'),
+        find.descendant(
+          of: find.byType(ListView),
+          matching: find.byType(Scrollable),
+        ),
+        const Offset(0, -200),
+      );
       await tester.tap(find.text('حفظ المكوّن'));
       await tester.pumpAndSettle();
 
@@ -567,9 +594,28 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(DesignFormScreen), findsOneWidget);
+
+      // Surface any exception thrown while building the form instead of
+      // silently rendering Flutter's red error widget.
+      final treeError = tester.takeException();
+      if (treeError != null) {
+        // ignore: avoid_print
+        print('DesignFormScreen build error: $treeError');
+      }
+
+      // The save button is the last child of a lazily built ListView, so it is
+      // not in the tree until the form is scrolled to the bottom.
+      await tester.dragUntilVisible(
+        find.text('تحديث'),
+        find.descendant(
+          of: find.byType(ListView),
+          matching: find.byType(Scrollable),
+        ),
+        const Offset(0, -200),
+      );
+
       expect(find.text('تحديث'), findsOneWidget);
 
-      await tester.scrollUntilVisible(find.text('تحديث'), 200);
       await tester.tap(find.text('تحديث'));
       await tester.pumpAndSettle();
 
