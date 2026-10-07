@@ -599,14 +599,42 @@ class DeliveryNoteService(_SalesDocumentService):
         order = self.db.get(SalesOrder, document.sales_order_id) if document.sales_order_id else None
         if order is None or order.project_id is None:
             return
+        self.sync_project_materials(order.project_id)
+        self.db.flush()
+
+    def after_unpost(self, document: DeliveryNote, entry: Any = None) -> None:
+        order = self.db.get(SalesOrder, document.sales_order_id) if document.sales_order_id else None
+        if order is not None:
+            self.sync_project_materials(order.project_id)
+
+    def sync_project_materials(self, project_id: uuid.UUID | None) -> None:
+        """Recompute material cost from the stock ledger of the project's deliveries."""
+        if project_id is None:
+            return
+        from app.models.inventory import StockLedgerEntry
         from app.models.projects import Project
 
-        project = self.db.get(Project, order.project_id)
+        project = self.db.get(Project, project_id)
         if project is None:
             return
-        project.actual_materials = money(
-            Decimal(project.actual_materials or 0) + money(inventory_result.get("total_cost", 0))
+        delivered_ids = select(DeliveryNote.id).where(
+            DeliveryNote.company_id == self.company_id,
+            DeliveryNote.sales_order_id.in_(
+                select(SalesOrder.id).where(
+                    SalesOrder.company_id == self.company_id, SalesOrder.project_id == project.id
+                )
+            ),
+            DeliveryNote.status.in_({DocumentStatus.POSTED.value, DocumentStatus.FULFILLED.value}),
         )
+        total = self.db.execute(
+            select(func.coalesce(func.sum(StockLedgerEntry.total_cost), 0)).where(
+                StockLedgerEntry.company_id == self.company_id,
+                StockLedgerEntry.reference_type == "delivery_note",
+                StockLedgerEntry.reference_id.in_(delivered_ids),
+                StockLedgerEntry.direction == "out",
+            )
+        ).scalar_one()
+        project.actual_materials = money(total)
         self.db.flush()
 
 
@@ -935,14 +963,43 @@ class SalesInvoiceService(_SalesDocumentService):
                 )
             )
 
-        # Project profitability
-        if document.project_id:
-            from app.models.projects import Project
+        # Project profitability: recomputed from the posted invoices so posting,
+        # unposting and re-posting can never double count the revenue.
+        self.sync_project_invoiced(document.project_id)
+        self.db.flush()
 
-            project = self.db.get(Project, document.project_id)
-            if project:
-                project.invoiced_amount = money(Decimal(project.invoiced_amount or 0) + money(document.total_amount))
-                self.db.flush()
+    def after_unpost(self, document: SalesInvoice, entry: Any = None) -> None:
+        self.sync_project_invoiced(document.project_id)
+
+    def sync_project_invoiced(self, project_id: uuid.UUID | None) -> None:
+        """Set the project's invoiced amount to the total of its posted invoices."""
+        if project_id is None:
+            return
+        from app.models.projects import Project
+
+        project = self.db.get(Project, project_id)
+        if project is None:
+            return
+        total = self.db.execute(
+            select(func.coalesce(func.sum(SalesInvoice.total_amount), 0)).where(
+                SalesInvoice.company_id == self.company_id,
+                SalesInvoice.project_id == project.id,
+                SalesInvoice.status == DocumentStatus.POSTED.value,
+                SalesInvoice.deleted_at.is_(None),
+            )
+        ).scalar_one()
+        # Credit notes issued against those invoices reduce the invoiced amount.
+        credited = self.db.execute(
+            select(func.coalesce(func.sum(CreditNote.total_amount), 0))
+            .join(SalesInvoice, CreditNote.invoice_id == SalesInvoice.id)
+            .where(
+                CreditNote.company_id == self.company_id,
+                SalesInvoice.project_id == project.id,
+                CreditNote.status == DocumentStatus.POSTED.value,
+                CreditNote.deleted_at.is_(None),
+            )
+        ).scalar_one()
+        project.invoiced_amount = money(money(total) - money(credited))
         self.db.flush()
 
 

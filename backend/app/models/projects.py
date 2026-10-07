@@ -92,6 +92,11 @@ class Project(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin, CompanyScoped):
         back_populates="project", cascade="all, delete-orphan", order_by="ProjectPhase.sequence_no"
     )
     tasks: Mapped[list[ProjectTask]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    milestones: Mapped[list[Milestone]] = relationship(cascade="all, delete-orphan", order_by="Milestone.due_date")
+    billing_schedule: Mapped[list[ProjectBillingSchedule]] = relationship(
+        cascade="all, delete-orphan", order_by="ProjectBillingSchedule.sequence_no"
+    )
+    resources: Mapped[list[ProjectResourcePlan]] = relationship(cascade="all, delete-orphan")
 
     @property
     def total_actual_cost(self) -> Decimal:
@@ -225,11 +230,23 @@ class Timesheet(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin, CompanyScoped)
     total_cost: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
     billable_amount: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
     status: Mapped[str] = mapped_column(String(24), default=DocumentStatus.DRAFT.value, nullable=False)
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id"))
+    updated_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id"))
+    submitted_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id"))
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     approved_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id"))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rejected_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id"))
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rejection_reason: Mapped[str | None] = mapped_column(String(400))
     is_invoiced: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     invoice_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("sales_invoices.id"))
     notes: Mapped[str | None] = mapped_column(Text)
+
+    @property
+    def document_date(self) -> date:
+        """Uniform document interface: the start of the timesheet period."""
+        return self.period_start
 
     lines: Mapped[list[TimesheetLine]] = relationship(
         back_populates="timesheet", cascade="all, delete-orphan", order_by="TimesheetLine.work_date"

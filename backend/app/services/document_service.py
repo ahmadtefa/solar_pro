@@ -352,6 +352,9 @@ class BaseDocumentService:
     def after_post(self, document: Any, inventory_result: Any = None, entry: Any = None) -> None:
         """Override for fulfilment bookkeeping (order quantities, sub-ledgers...)."""
 
+    def after_unpost(self, document: Any, entry: Any = None) -> None:
+        """Override to roll back post-time side effects (idempotent by design)."""
+
     def post(self, document: Any, *, allow_draft: bool = False) -> Any:
         if getattr(document, "status", None) == DocumentStatus.POSTED.value:
             raise BusinessRuleError("Document is already posted")
@@ -387,6 +390,7 @@ class BaseDocumentService:
         if entry is not None and entry.status == DocumentStatus.POSTED.value:
             self.posting.reverse_entry(entry, reason=reason, user_id=self.user_id)
         document.journal_entry_id = None
+        self.after_unpost(document, entry)
         self.transition(document, DocumentStatus.DRAFT.value, reason=reason, action=AuditAction.UNPOST)
         return document
 
