@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Query
 from sqlalchemy import func, select
 
-from app.api.crud import ResourceSpec, build_crud_router, guarded_create, serialise
+from app.api.crud import ResourceSpec, build_crud_router, guarded_create, guarded_update, serialise
 from app.api.deps import DB, CurrentUserDep, audit_context
 from app.api.documents import DocumentSpec, build_document_router
 from app.core.errors import NotFoundError, ValidationFailure
@@ -20,7 +20,16 @@ from app.models.inventory import (
     StockBalance,
     StockLedgerEntry,
 )
-from app.models.masterdata import PriceList, PriceListItem, Product, ProductBarcode, ProductUnit, Warehouse
+from app.models.masterdata import (
+    Brand,
+    PriceList,
+    PriceListItem,
+    Product,
+    ProductBarcode,
+    ProductCategory,
+    ProductUnit,
+    Warehouse,
+)
 from app.schemas.masterdata import ProductCreate, WarehouseCreate
 from app.services.audit_service import AuditService
 from app.services.inventory_service import InventoryService
@@ -31,6 +40,44 @@ from app.services.stock_operations_service import (
 )
 
 router = APIRouter()
+
+# --------------------------------------------------------------------------- #
+# Item taxonomy: categories and brands
+# --------------------------------------------------------------------------- #
+router.include_router(
+    build_crud_router(
+        ResourceSpec(
+            name="product-categories",
+            model=ProductCategory,
+            module="inventory",
+            entity="product_category",
+            search_fields=["code", "name", "name_ar"],
+            label_field="name",
+            filters={"parent_id": "parent_id", "is_active": "is_active"},
+            create_handler=guarded_create(ProductCategory, unique=[("code", "Category code")]),
+            update_handler=guarded_update(ProductCategory),
+        ),
+        tags=["inventory"],
+    ),
+    prefix="/product-categories",
+)
+router.include_router(
+    build_crud_router(
+        ResourceSpec(
+            name="brands",
+            model=Brand,
+            module="inventory",
+            entity="brand",
+            search_fields=["code", "name", "name_ar", "manufacturer"],
+            label_field="name",
+            filters={"is_active": "is_active"},
+            create_handler=guarded_create(Brand, unique=[("code", "Brand code")]),
+            update_handler=guarded_update(Brand),
+        ),
+        tags=["inventory"],
+    ),
+    prefix="/brands",
+)
 
 # --------------------------------------------------------------------------- #
 # Item master

@@ -15,11 +15,9 @@ from app.api.deps import DB, CurrentUserDep, audit_context
 from app.api.documents import DocumentSpec, build_document_router
 from app.core.errors import NotFoundError, ValidationFailure
 from app.models.expenses import Budget, Expense, ExpenseAdvance, ExpenseCategory, ExpenseClaim
-from app.services.audit_service import AuditService
 from app.services.expense_service import (
     BudgetService,
     ExpenseAdvanceService,
-    ExpenseCategoryService,
     ExpenseClaimService,
     ExpenseService,
 )
@@ -28,24 +26,12 @@ router = APIRouter()
 
 # --------------------------------------------------------------------------- #
 # Categories
+#
+# The CRUD router below owns /{name}-categories (list, detail, create, update, delete).
+# The previous hand written /categories endpoints duplicated it and collided with the
+# other module that also served /categories, so they were removed in favour of one
+# unambiguous collection per module.
 # --------------------------------------------------------------------------- #
-@router.get("/categories", summary="Expense categories")
-def list_categories(db: DB, current: CurrentUserDep) -> dict[str, Any]:
-    current.require("expenses.expense_category.view")
-    rows = ExpenseCategoryService(db, current.company_id).list()
-    return {"items": [serialise(row) for row in rows], "total": len(rows)}
-
-
-@router.post("/categories", status_code=201, summary="Create an expense category")
-def create_category(payload: dict[str, Any], db: DB, current: CurrentUserDep) -> dict[str, Any]:
-    current.require("expenses.expense_category.create")
-    category = ExpenseCategoryService(db, current.company_id, user_id=current.id).create(payload)
-    AuditService(db, audit_context(current)).log_create(
-        category, entity_type="expense_category", label=category.code
-    )
-    return serialise(category)
-
-
 router.include_router(
     build_crud_router(
         ResourceSpec(

@@ -25,6 +25,7 @@ class BusinessConfigs {
         // Catalogue and inventory
         'products': products,
         'product-categories': productCategories,
+        'brands': brands,
         'warehouses': warehouses,
         'price-lists': priceLists,
         'product-barcodes': productBarcodes,
@@ -457,7 +458,7 @@ class BusinessConfigs {
 
   static const ResourceConfig productCategories = ResourceConfig(
     nameKey: 'nav.inventory',
-    path: '/categories',
+    path: '/product-categories',
     permissionPrefix: 'inventory.product_category',
     icon: Icons.account_balance_wallet_outlined,
     columns: <ColumnSpec>[
@@ -470,7 +471,27 @@ class BusinessConfigs {
       FieldSpec(key: 'code', labelKey: 'common.code', required: true),
       FieldSpec(key: 'name', labelKey: 'common.name', required: true),
       FieldSpec(key: 'name_ar', labelKey: 'common.name_ar'),
-      FieldSpec(key: 'parent_id', labelKey: 'nav.inventory', type: FieldType.reference, optionsKey: 'list:/categories#name'),
+      FieldSpec(key: 'parent_id', labelKey: 'nav.inventory', type: FieldType.reference, optionsKey: 'list:/product-categories#name'),
+      FieldSpec(key: 'is_active', labelKey: 'common.active', type: FieldType.boolean, defaultValue: true),
+    ],
+  );
+
+  static const ResourceConfig brands = ResourceConfig(
+    nameKey: 'nav.inventory',
+    path: '/brands',
+    permissionPrefix: 'inventory.brand',
+    icon: Icons.workspace_premium_outlined,
+    columns: <ColumnSpec>[
+      ColumnSpec('code', 'common.code', width: 120, emphasize: true),
+      ColumnSpec('name', 'common.name', width: 240),
+      ColumnSpec('manufacturer', 'common.description', width: 200),
+      ColumnSpec('is_active', 'common.active', type: FieldType.boolean, width: 90),
+    ],
+    fields: <FieldSpec>[
+      FieldSpec(key: 'code', labelKey: 'common.code', required: true),
+      FieldSpec(key: 'name', labelKey: 'common.name', required: true),
+      FieldSpec(key: 'name_ar', labelKey: 'common.name_ar'),
+      FieldSpec(key: 'manufacturer', labelKey: 'common.description'),
       FieldSpec(key: 'is_active', labelKey: 'common.active', type: FieldType.boolean, defaultValue: true),
     ],
   );

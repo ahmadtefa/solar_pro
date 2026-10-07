@@ -21,31 +21,18 @@ from app.models.assets import (
     AssetMaintenance,
     AssetTransfer,
 )
-from app.services.asset_service import AssetCategoryService, AssetService, DepreciationService
-from app.services.audit_service import AuditService
+from app.services.asset_service import AssetService, DepreciationService
 
 router = APIRouter()
 
 # --------------------------------------------------------------------------- #
 # Categories
+#
+# The CRUD router below owns /{name}-categories (list, detail, create, update, delete).
+# The previous hand written /categories endpoints duplicated it and collided with the
+# other module that also served /categories, so they were removed in favour of one
+# unambiguous collection per module.
 # --------------------------------------------------------------------------- #
-@router.get("/categories", summary="Asset categories and their depreciation policy")
-def list_categories(db: DB, current: CurrentUserDep) -> dict[str, Any]:
-    current.require("assets.asset_category.view")
-    rows = AssetCategoryService(db, current.company_id).list()
-    return {"items": [serialise(row) for row in rows], "total": len(rows)}
-
-
-@router.post("/categories", status_code=201, summary="Create an asset category")
-def create_category(payload: dict[str, Any], db: DB, current: CurrentUserDep) -> dict[str, Any]:
-    current.require("assets.asset_category.create")
-    category = AssetCategoryService(db, current.company_id, user_id=current.id).create(payload)
-    AuditService(db, audit_context(current)).log_create(
-        category, entity_type="asset_category", label=category.code
-    )
-    return serialise(category)
-
-
 router.include_router(
     build_crud_router(
         ResourceSpec(
