@@ -129,6 +129,9 @@ class StockLedgerEntry(Base, UUIDMixin, TimestampMixin, CompanyScoped):
     party_type: Mapped[str | None] = mapped_column(String(16))
     party_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True))
     journal_entry_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("journal_entries.id"))
+    is_reversed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    reversal_of_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("stock_ledger_entries.id"))
+    reversed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     notes: Mapped[str | None] = mapped_column(Text)
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True))
     extra_data: Mapped[dict] = mapped_column(JSONType, default=dict, nullable=False)
@@ -200,6 +203,11 @@ class StockTransfer(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin, CompanySco
     workflow_instance_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True))
     total_cost: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
 
+    @property
+    def document_date(self) -> date:
+        """Alias required by the shared document lifecycle engine."""
+        return self.transfer_date
+
     lines: Mapped[list[StockTransferLine]] = relationship(
         back_populates="transfer", cascade="all, delete-orphan", order_by="StockTransferLine.sequence_no"
     )
@@ -261,6 +269,11 @@ class StockAdjustment(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin, CompanyS
     posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     total_cost: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
 
+    @property
+    def document_date(self) -> date:
+        """Alias required by the shared document lifecycle engine."""
+        return self.adjustment_date
+
     lines: Mapped[list[StockAdjustmentLine]] = relationship(
         back_populates="adjustment", cascade="all, delete-orphan", order_by="StockAdjustmentLine.sequence_no"
     )
@@ -320,6 +333,11 @@ class StockCount(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin, CompanyScoped
     responsible_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id"))
     notes: Mapped[str | None] = mapped_column(Text)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    @property
+    def document_date(self) -> date:
+        """Alias required by the shared document lifecycle engine."""
+        return self.count_date
 
     lines: Mapped[list[StockCountLine]] = relationship(
         back_populates="stock_count", cascade="all, delete-orphan", order_by="StockCountLine.sequence_no"

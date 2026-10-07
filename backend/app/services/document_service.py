@@ -33,7 +33,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     DocumentStatus.SUBMITTED.value: {DocumentStatus.APPROVED.value, DocumentStatus.REJECTED.value, DocumentStatus.CANCELLED.value, DocumentStatus.DRAFT.value},
     DocumentStatus.APPROVED.value: {DocumentStatus.POSTED.value, DocumentStatus.CANCELLED.value, DocumentStatus.PARTIALLY_FULFILLED.value, DocumentStatus.FULFILLED.value},
     DocumentStatus.REJECTED.value: {DocumentStatus.DRAFT.value, DocumentStatus.CANCELLED.value},
-    DocumentStatus.POSTED.value: {DocumentStatus.CANCELLED.value, DocumentStatus.PARTIALLY_FULFILLED.value, DocumentStatus.FULFILLED.value, DocumentStatus.CLOSED.value},
+    DocumentStatus.POSTED.value: {DocumentStatus.DRAFT.value, DocumentStatus.CANCELLED.value, DocumentStatus.PARTIALLY_FULFILLED.value, DocumentStatus.FULFILLED.value, DocumentStatus.CLOSED.value},
     DocumentStatus.PARTIALLY_FULFILLED.value: {DocumentStatus.FULFILLED.value, DocumentStatus.CLOSED.value, DocumentStatus.POSTED.value},
     DocumentStatus.FULFILLED.value: {DocumentStatus.CLOSED.value, DocumentStatus.POSTED.value},
     DocumentStatus.CANCELLED.value: set(),
@@ -355,6 +355,27 @@ class BaseDocumentService:
     def after_unpost(self, document: Any, entry: Any = None) -> None:
         """Override to roll back post-time side effects (idempotent by design)."""
 
+    def reverse_inventory(self, document: Any, entry: Any = None) -> None:
+        """Undo the stock effects of a posted document.
+
+        Every stock movement carries ``reference_type``/``reference_id``, so the
+        default implementation reverses the ledger rows of this document.  The
+        reversal is idempotent: reversed rows are flagged and never reversed
+        twice, which keeps unpost/re-post cycles safe.
+        """
+        from app.services.inventory_service import InventoryService
+
+        reference_type = getattr(document, "inventory_reference_type", None) or self.document_type
+        document_id = getattr(document, "id", None)
+        if document_id is None:
+            return
+        InventoryService(self.db, self.company_id).reverse_document_moves(
+            reference_type,
+            document_id,
+            entry_date=getattr(document, "document_date", None) or date.today(),
+            reason=f"Reversal of {self.document_type}",
+        )
+
     def post(self, document: Any, *, allow_draft: bool = False) -> Any:
         if getattr(document, "status", None) == DocumentStatus.POSTED.value:
             raise BusinessRuleError("Document is already posted")
@@ -387,15 +408,29 @@ class BaseDocumentService:
         entry = None
         if getattr(document, "journal_entry_id", None):
             entry = self.db.get(JournalEntry, document.journal_entry_id)
-        if entry is not None and entry.status == DocumentStatus.POSTED.value:
-            self.posting.reverse_entry(entry, reason=reason, user_id=self.user_id)
-        document.journal_entry_id = None
+        self._undo_posting(document, entry, reason=reason)
         self.after_unpost(document, entry)
         self.transition(document, DocumentStatus.DRAFT.value, reason=reason, action=AuditAction.UNPOST)
         return document
 
     def cancel(self, document: Any, *, reason: str) -> Any:
+        if getattr(document, "status", None) == DocumentStatus.POSTED.value:
+            # Cancelling a posted document must undo its stock and ledger effects
+            # first: a cancelled document may never leave accounting or stock behind.
+            entry = None
+            if getattr(document, "journal_entry_id", None):
+                entry = self.db.get(JournalEntry, document.journal_entry_id)
+            self._undo_posting(document, entry, reason=f"Cancelled: {reason}")
+            self.after_unpost(document, entry)
         return self.transition(document, DocumentStatus.CANCELLED.value, reason=reason, action=AuditAction.CANCEL)
+
+    def _undo_posting(self, document: Any, entry: Any, *, reason: str) -> None:
+        """Reverse the GL entry and the stock movements created at posting time."""
+        if entry is not None and entry.status == DocumentStatus.POSTED.value:
+            self.posting.reverse_entry(entry, reason=reason, user_id=self.user_id)
+        self.reverse_inventory(document, entry)
+        if hasattr(document, "journal_entry_id"):
+            document.journal_entry_id = None
 
     def submit(self, document: Any) -> Any:
         return self.transition(document, DocumentStatus.SUBMITTED.value, action=AuditAction.SUBMIT)

@@ -632,6 +632,7 @@ class DeliveryNoteService(_SalesDocumentService):
                 StockLedgerEntry.reference_type == "delivery_note",
                 StockLedgerEntry.reference_id.in_(delivered_ids),
                 StockLedgerEntry.direction == "out",
+                StockLedgerEntry.is_reversed.is_(False),
             )
         ).scalar_one()
         project.actual_materials = money(total)

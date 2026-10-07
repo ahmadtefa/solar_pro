@@ -613,6 +613,98 @@ class AuthService:
             user_agent=session.user_agent if session else None,
         )
 
+    def login(
+        self,
+        *,
+        email: str,
+        password: str,
+        company_id: uuid.UUID | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        device_name: str | None = None,
+    ) -> dict[str, Any]:
+        """Authenticate and open a session in one step (used by the API layer)."""
+        user = self.authenticate(
+            email=email,
+            password=password,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            company_id=company_id,
+        )
+        return self.create_session(
+            user,
+            company_id=company_id,
+            device_name=device_name,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+
+    def grant_branch_access(
+        self, user_id: uuid.UUID, branch_id: uuid.UUID, *, company_id: uuid.UUID, can_transact: bool = True
+    ) -> UserBranchAccess:
+        branch = self.db.get(Branch, branch_id)
+        if branch is None or branch.company_id != company_id:
+            raise NotFoundError("Branch not found in this company")
+        existing = self.db.execute(
+            select(UserBranchAccess).where(
+                UserBranchAccess.user_id == user_id, UserBranchAccess.branch_id == branch_id
+            )
+        ).scalars().first()
+        if existing is not None:
+            existing.can_view = True
+            existing.can_transact = can_transact
+            self.db.flush()
+            return existing
+        link = UserBranchAccess(
+            user_id=user_id, branch_id=branch_id, company_id=company_id, can_view=True, can_transact=can_transact
+        )
+        self.db.add(link)
+        self.db.flush()
+        return link
+
+    def grant_warehouse_access(
+        self, user_id: uuid.UUID, warehouse_id: uuid.UUID, *, company_id: uuid.UUID, can_transact: bool = True
+    ) -> UserWarehouseAccess:
+        warehouse = self.db.get(Warehouse, warehouse_id)
+        if warehouse is None or warehouse.company_id != company_id:
+            raise NotFoundError("Warehouse not found in this company")
+        existing = self.db.execute(
+            select(UserWarehouseAccess).where(
+                UserWarehouseAccess.user_id == user_id, UserWarehouseAccess.warehouse_id == warehouse_id
+            )
+        ).scalars().first()
+        if existing is not None:
+            existing.can_view = True
+            existing.can_transact = can_transact
+            self.db.flush()
+            return existing
+        link = UserWarehouseAccess(
+            user_id=user_id, warehouse_id=warehouse_id, company_id=company_id, can_view=True, can_transact=can_transact
+        )
+        self.db.add(link)
+        self.db.flush()
+        return link
+
+    def revoke_branch_access(self, user_id: uuid.UUID, branch_id: uuid.UUID) -> None:
+        link = self.db.execute(
+            select(UserBranchAccess).where(
+                UserBranchAccess.user_id == user_id, UserBranchAccess.branch_id == branch_id
+            )
+        ).scalars().first()
+        if link is not None:
+            self.db.delete(link)
+            self.db.flush()
+
+    def revoke_warehouse_access(self, user_id: uuid.UUID, warehouse_id: uuid.UUID) -> None:
+        link = self.db.execute(
+            select(UserWarehouseAccess).where(
+                UserWarehouseAccess.user_id == user_id, UserWarehouseAccess.warehouse_id == warehouse_id
+            )
+        ).scalars().first()
+        if link is not None:
+            self.db.delete(link)
+            self.db.flush()
+
     # ------------------------------------------------------------------ helpers
     def create_user(
         self,

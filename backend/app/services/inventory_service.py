@@ -545,6 +545,77 @@ class InventoryService:
         self.db.flush()
 
     # --------------------------------------------------------------- helpers
+    # ------------------------------------------------------- document reversal
+    def document_moves(
+        self,
+        reference_type: str,
+        reference_id: uuid.UUID,
+        *,
+        include_reversed: bool = False,
+    ) -> list[StockLedgerEntry]:
+        """Ledger rows created by one document (oldest first)."""
+        stmt = select(StockLedgerEntry).where(
+            StockLedgerEntry.company_id == self.company_id,
+            StockLedgerEntry.reference_type == reference_type,
+            StockLedgerEntry.reference_id == reference_id,
+        )
+        if not include_reversed:
+            stmt = stmt.where(StockLedgerEntry.is_reversed.is_(False))
+        stmt = stmt.order_by(StockLedgerEntry.created_at, StockLedgerEntry.id)
+        return list(self.db.execute(stmt).scalars().all())
+
+    def reverse_document_moves(
+        self,
+        reference_type: str,
+        reference_id: uuid.UUID,
+        *,
+        entry_date: date | None = None,
+        reason: str | None = None,
+    ) -> list[StockMoveResult]:
+        """Post mirror movements for every active ledger row of a document.
+
+        The reversal is idempotent: every original row is flagged
+        ``is_reversed`` and the mirror rows carry ``reversal_of_id``, so
+        unpost/re-post cycles never double-reverse stock.
+        """
+        originals = self.document_moves(reference_type, reference_id)
+        if not originals:
+            return []
+        results: list[StockMoveResult] = []
+        for original in originals:
+            inbound = original.direction == "in"
+            movement_type = OUTBOUND_FOR_INBOUND.get(original.movement_type, "issue") if inbound else (
+                INBOUND_FOR_OUTBOUND.get(original.movement_type, "receipt")
+            )
+            result = self.move(
+                StockMove(
+                    product_id=original.product_id,
+                    warehouse_id=original.warehouse_id,
+                    quantity=Decimal(original.base_quantity),
+                    movement_type=movement_type,
+                    unit_cost=Decimal(original.unit_cost or 0),
+                    entry_date=entry_date or date.today(),
+                    batch_id=original.batch_id,
+                    location_id=original.location_id,
+                    reference_type=reference_type,
+                    reference_id=reference_id,
+                    reference_no=original.reference_no,
+                    reference_line_id=original.reference_line_id,
+                    party_type=original.party_type,
+                    party_id=original.party_id,
+                    notes=(reason or "Reversal")[:250],
+                    allow_negative=True,
+                    extra_data={"reversal_of": str(original.id)},
+                )
+            )
+            original.is_reversed = True
+            original.reversed_at = datetime.now(UTC)
+            result.ledger_entry.reversal_of_id = original.id
+            result.ledger_entry.is_reversed = True
+            results.append(result)
+        self.db.flush()
+        return results
+
     def validate_availability(self, product_id: uuid.UUID, warehouse_id: uuid.UUID, quantity: Decimal) -> None:
         product = self.get_product(product_id)
         if product.allow_negative_stock or self.get_warehouse(warehouse_id).allows_negative_stock:
@@ -592,7 +663,9 @@ class InventoryService:
                 StockLedgerEntry.batch_id.is_(None) if balance.batch_id is None else StockLedgerEntry.batch_id == balance.batch_id,
             )
             inbound = self.db.execute(
-                ledger_stmt.where(StockLedgerEntry.direction == "in")
+                ledger_stmt.where(
+                    StockLedgerEntry.direction == "in", StockLedgerEntry.is_reversed.is_(False)
+                )
             ).scalar_one()
             outbound = self.db.execute(
                 select(func.coalesce(func.sum(StockLedgerEntry.base_quantity), 0)).where(
@@ -600,6 +673,7 @@ class InventoryService:
                     StockLedgerEntry.product_id == balance.product_id,
                     StockLedgerEntry.warehouse_id == balance.warehouse_id,
                     StockLedgerEntry.direction == "out",
+                    StockLedgerEntry.is_reversed.is_(False),
                     StockLedgerEntry.batch_id.is_(None) if balance.batch_id is None else StockLedgerEntry.batch_id == balance.batch_id,
                 )
             ).scalar_one()
@@ -639,3 +713,26 @@ def movements_for_document(document_type: str) -> Sequence[str]:
         "stock_adjustment": [MovementType.ADJUSTMENT_IN.value, MovementType.ADJUSTMENT_OUT.value],
         "production_order": [MovementType.PRODUCTION_IN.value, MovementType.PRODUCTION_OUT.value],
     }.get(document_type, [])
+
+
+#: Opposites used when a document is unposted or cancelled.
+OUTBOUND_FOR_INBOUND: dict[str, str] = {
+    MovementType.OPENING.value: MovementType.ADJUSTMENT_OUT.value,
+    MovementType.RECEIPT.value: MovementType.ISSUE.value,
+    MovementType.TRANSFER_IN.value: MovementType.TRANSFER_OUT.value,
+    MovementType.ADJUSTMENT_IN.value: MovementType.ADJUSTMENT_OUT.value,
+    MovementType.PRODUCTION_IN.value: MovementType.PRODUCTION_OUT.value,
+    MovementType.SALES_RETURN_IN.value: MovementType.ISSUE.value,
+    MovementType.PURCHASE_RETURN_OUT.value: MovementType.RECEIPT.value,
+}
+
+INBOUND_FOR_OUTBOUND: dict[str, str] = {
+    MovementType.ISSUE.value: MovementType.RECEIPT.value,
+    MovementType.TRANSFER_OUT.value: MovementType.TRANSFER_IN.value,
+    MovementType.ADJUSTMENT_OUT.value: MovementType.ADJUSTMENT_IN.value,
+    MovementType.PRODUCTION_OUT.value: MovementType.PRODUCTION_IN.value,
+    MovementType.SCRAP.value: MovementType.ADJUSTMENT_IN.value,
+    MovementType.CONSUMPTION.value: MovementType.ADJUSTMENT_IN.value,
+    MovementType.PURCHASE_RETURN_OUT.value: MovementType.RECEIPT.value,
+    MovementType.SALES_RETURN_IN.value: MovementType.ISSUE.value,
+}
