@@ -109,9 +109,13 @@ class DatabaseHelper {
     return columns.any((col) => col['name'] == column);
   }
 
+  /// Applies the migration steps between [oldVersion] and [newVersion].
+  ///
+  /// Every step is bounded by [newVersion] as well as [oldVersion]: a database
+  /// that is only being brought up to v3 must not run the v4 step (which would
+  /// touch tables that do not exist yet on a v1/v2 install).
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // Handle migrations here for future versions
-    if (oldVersion < 2) {
+    if (oldVersion < 2 && newVersion >= 2) {
       // Add price_per_watt column to components table
       if (!await _hasColumn(db, 'components', 'price_per_watt')) {
         await db.execute(
@@ -119,7 +123,7 @@ class DatabaseHelper {
         );
       }
     }
-    if (oldVersion < 3) {
+    if (oldVersion < 3 && newVersion >= 3) {
       // Add nullable panelId column to designs table for editing support
       if (!await _hasColumn(db, 'designs', 'panelId')) {
         await db.execute(
@@ -127,7 +131,7 @@ class DatabaseHelper {
         );
       }
     }
-    if (oldVersion < 4) {
+    if (oldVersion < 4 && newVersion >= 4) {
       // Quote items gained a unit price so a quote can be priced line by line.
       if (!await _hasColumn(db, 'quote_items', 'unitPrice')) {
         await db.execute(

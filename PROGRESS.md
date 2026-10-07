@@ -231,3 +231,24 @@ The 13 failures were triaged and fixed one by one; they were *real* bugs, not ba
   The design-form test uses `dragUntilVisible` and scrolls the save button into view before
   asserting: that button is the last child of a lazily built `ListView`, so it does not exist
   until the form is scrolled.
+
+### Second run: 63 passed / 7 failed — and the last real bug
+
+- **`DatabaseHelper._onUpgrade` ignored `newVersion`.** Every step was gated on
+  `oldVersion < N` only, so bringing a v1 database up to v3 also ran the v4 step
+  and died on `no such table: quote_items`. Each step is now bounded by
+  `oldVersion < N && newVersion >= N` (production is unaffected: it upgrades to
+  the current version anyway).
+- **Every `TextFormField` contains its own horizontal `Scrollable`**
+  (`restorationId: "editable"`). That is why `find.byType(Scrollable)` matched
+  six widgets inside a five-field form and `scrollUntilVisible`/`dragUntilVisible`
+  failed with "too many elements". The tests now target the form's vertical
+  Scrollable with `byWidgetPredicate(... axisDirection == AxisDirection.down)`.
+
+Three Flutter facts the remaining widget tests had to learn (all in the tests,
+not in the app):
+- A `ListView` builds its children lazily, so anything below the fold **does not
+  exist** until it is scrolled into view — `enterText`/`tap` on it throws
+  "Bad state: No element".
+- A `DropdownButtonFormField` does not build its items until the menu is opened.
+- `MaterialApp` installs its own ltr `Directionality` above the app's rtl one.

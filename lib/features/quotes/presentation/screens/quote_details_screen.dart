@@ -8,7 +8,6 @@ import '../../../../core/pdf/pdf_fonts.dart';
 import '../../../../core/pdf/quote_pdf.dart';
 import '../../../../core/utils/currency_formatter.dart';
 import '../../../customers/data/models/customer.dart';
-import '../../../customers/presentation/providers/customer_providers.dart';
 import '../../../designs/data/models/component.dart';
 import '../../../designs/data/models/design.dart';
 import '../../../designs/presentation/providers/component_providers.dart';

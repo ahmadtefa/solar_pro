@@ -268,6 +268,30 @@ void main() {
         matching: find.byType(TextFormField),
       );
 
+  /// The form's vertical Scrollable.
+  ///
+  /// Every TextFormField also owns a horizontal one (restorationId
+  /// "editable"), so a plain `find.byType(Scrollable)` matches half a dozen
+  /// widgets here.
+  Finder formScrollable() => find.descendant(
+        of: find.byType(ListView),
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is Scrollable && widget.axisDirection == AxisDirection.down,
+        ),
+      );
+
+  /// The form is one big lazily built ListView: anything below the fold simply
+  /// does not exist yet, so it has to be scrolled into view first.
+  Future<void> scrollTo(WidgetTester tester, Finder target) async {
+    await tester.dragUntilVisible(
+      target,
+      formScrollable(),
+      const Offset(0, -200),
+    );
+    await tester.pumpAndSettle();
+  }
+
   Future<void> pumpForm(WidgetTester tester) async {
     quoteRepo = _FakeQuoteRepository();
     itemRepo = _FakeQuoteItemRepository();
@@ -308,6 +332,13 @@ void main() {
     await pumpForm(tester);
 
     expect(find.text('محمد عبد الرحمن'), findsWidgets);
+
+    // A DropdownButtonFormField only builds its items once the menu is open,
+    // so open the design dropdown before looking for the design label.
+    final dropdowns = find.byType(DropdownButtonFormField<int>);
+    expect(dropdowns, findsNWidgets(2));
+    await tester.tap(dropdowns.at(1));
+    await tester.pumpAndSettle();
     expect(find.text(designLabel()), findsWidgets);
   });
 
@@ -370,6 +401,8 @@ void main() {
     await tester.enterText(field('البيان'), 'نظام كامل');
     await tester.enterText(field('الكمية'), '1');
     await tester.enterText(field('سعر الوحدة (ج.م)'), '100000');
+    // The totals card lives below the fold of the lazily built ListView.
+    await scrollTo(tester, find.text('الخصم %').first);
     await tester.enterText(field('الخصم %'), '10');
     await tester.enterText(field('الضريبة %'), '5');
     await tester.pumpAndSettle();
@@ -403,11 +436,19 @@ void main() {
       (WidgetTester tester) async {
     await pumpForm(tester);
 
+    // The terms section is below the fold too.
+    await scrollTo(tester, find.text('الشروط الافتراضية').first);
     await tester.tap(find.text('الشروط الافتراضية'));
     await tester.pumpAndSettle();
 
+    // Read the fields themselves: `find.text` would depend on how the
+    // EditableText renders, the controllers are what actually hold the terms.
+    final typed = tester
+        .widgetList<EditableText>(find.byType(EditableText))
+        .map((editable) => editable.controller.text)
+        .toList();
     for (final term in kDefaultTerms) {
-      expect(find.text(term), findsWidgets);
+      expect(typed, contains(term), reason: 'missing default term: $term');
     }
   });
 }
