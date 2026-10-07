@@ -208,6 +208,41 @@ def session_scope(company_id: uuid.UUID | None = None, skip_tenant: bool = False
 def utcnow() -> datetime:
     return datetime.now(UTC)
 
+def utcnow_naive() -> datetime:
+    """Naive UTC now, comparable with values read back from every dialect.
+
+    SQLite (used for local development and the test suite) drops tzinfo when it
+    stores a timestamp, so comparing a loaded column against an aware datetime
+    raises ``TypeError``.  Services therefore normalise the reference value.
+    """
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def as_utc(value: datetime | None) -> datetime | None:
+    """Attach UTC to a naive timestamp and leave aware values untouched."""
+    if value is None:
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
+def is_past(value: datetime | None, *, reference: datetime | None = None) -> bool:
+    """True when ``value`` lies in the past, tolerating naive/aware mixtures."""
+    if value is None:
+        return False
+    moment = as_utc(value)
+    now = as_utc(reference) or datetime.now(UTC)
+    return bool(moment and moment < now)
+
+
+def seconds_until(value: datetime | None, *, reference: datetime | None = None) -> int:
+    """Seconds from now until ``value`` (negative when already passed)."""
+    moment = as_utc(value)
+    now = as_utc(reference) or datetime.now(UTC)
+    if moment is None:
+        return 0
+    return int((moment - now).total_seconds())
+
+
 
 def create_all() -> None:  # pragma: no cover - used by dev bootstrap only
     """Create the schema from metadata (tests / quick start)."""

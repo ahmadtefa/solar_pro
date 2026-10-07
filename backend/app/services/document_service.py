@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.core.coercion import as_decimal, as_uuid
 from app.core.enums import AuditAction, DocumentStatus
 from app.core.errors import BusinessRuleError, NotFoundError, PermissionDeniedError, ValidationFailure
+from app.core.pagination import snapshot
 from app.models.accounting import JournalEntry
 from app.models.platform import Company, ExchangeRate, Tax
 from app.services.audit_service import AuditContext, AuditService
@@ -284,6 +285,91 @@ class BaseDocumentService:
         if company is None:
             raise NotFoundError("Company not found")
         return company
+
+    # ------------------------------------------------------------------ editing
+    #: Header columns a client payload may never change through an update.
+    PROTECTED_HEADER_FIELDS = {
+        "id",
+        "company_id",
+        "created_at",
+        "updated_at",
+        "deleted_at",
+        "document_no",
+        "status",
+        "posted_by_id",
+        "posted_at",
+        "approved_by_id",
+        "approved_at",
+        "journal_entry_id",
+        "workflow_instance_id",
+        "created_by_id",
+    }
+
+    def apply_header(self, document: Any, payload: dict[str, Any]) -> None:
+        """Copy editable header fields of a payload onto an existing document."""
+        allowed = {column.key for column in self.model.__mapper__.columns} - self.PROTECTED_HEADER_FIELDS
+        for key, value in payload.items():
+            if key in allowed and value is not None:
+                setattr(document, key, value)
+
+    def product_lookup(self, rows: Sequence[dict[str, Any]]) -> dict[uuid.UUID, Any]:
+        """Fetch the products referenced by a payload in one query."""
+        from app.models.masterdata import Product
+
+        ids = {as_uuid(row.get("product_id")) for row in rows if row.get("product_id")}
+        ids = {item for item in ids if item is not None}
+        if not ids:
+            return {}
+        products = self.db.execute(
+            select(Product).where(Product.company_id == self.company_id, Product.id.in_(ids))
+        ).scalars().all()
+        return {product.id: product for product in products}
+
+    def update(self, document: Any, payload: dict[str, Any]) -> Any:
+        """Edit a draft document with the same validation used on create."""
+        self.ensure_editable(document)
+        before = snapshot(document)
+        header = {key: value for key, value in payload.items() if key != "lines"}
+        self.apply_header(document, header)
+        if payload.get("lines") is not None:
+            rows = payload["lines"]
+            computed, totals = self.build_lines(
+                rows,
+                product_lookup=self.product_lookup(rows),
+                purchase=self.inventory_direction == "in",
+            )
+            self.apply_line_rows(document, computed)
+            self.apply_totals(
+                document,
+                totals,
+                other_charges=(
+                    Decimal(str(payload["other_charges"])) if payload.get("other_charges") is not None else None
+                ),
+                shipping_amount=(
+                    Decimal(str(payload["shipping_amount"])) if payload.get("shipping_amount") is not None else None
+                ),
+                discount_amount=(
+                    Decimal(str(payload["discount_amount"])) if payload.get("discount_amount") is not None else None
+                ),
+                exchange_rate=(
+                    Decimal(str(payload["exchange_rate"])) if payload.get("exchange_rate") is not None else None
+                ),
+            )
+        self.db.flush()
+        self.audit.log_update(document, before, entity_type=self.document_type)
+        return document
+
+    def delete_draft(self, document: Any) -> None:
+        """Remove a document that was never posted; posted documents are reversed."""
+        status = getattr(document, "status", DocumentStatus.DRAFT.value)
+        if status not in EDITABLE_STATUSES:
+            raise BusinessRuleError(
+                "Only draft or rejected documents can be deleted. Reverse the posted document instead.",
+                status=status,
+            )
+        self.audit.log_delete(document, entity_type=self.document_type)
+        self.db.delete(document)
+        self.db.flush()
 
     def can_transition(self, document: Any, target: str) -> bool:
         current = getattr(document, "status", DocumentStatus.DRAFT.value)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
@@ -43,6 +44,23 @@ class DashboardService:
 
     def _count(self, stmt) -> int:
         return int(self.db.execute(stmt).scalar_one() or 0)
+
+    def _sum_sales(
+        self,
+        model: Any,
+        column: Any,
+        extra_conditions: Sequence[Any] = (),
+        *,
+        salesperson_id: uuid.UUID | None = None,
+    ) -> Decimal:
+        """Sum ``column`` for a sales document, optionally scoped to one salesperson."""
+        stmt = select(func.coalesce(func.sum(column), 0)).where(
+            model.company_id == self.company_id,
+            *extra_conditions,
+        )
+        if salesperson_id is not None and hasattr(model, "salesperson_id"):
+            stmt = stmt.where(model.salesperson_id == salesperson_id)
+        return self._sum(stmt)
 
     def _period(self, days: int = 30) -> tuple[date, date]:
         today = date.today()
@@ -243,15 +261,6 @@ class DashboardService:
     def sales(self, *, salesperson_id: uuid.UUID | None = None) -> dict[str, Any]:
         date_from, date_to = self._period(30)
 
-        def _sum_sales(model, column, extra_conditions=()):
-            stmt = select(func.coalesce(func.sum(column), 0)).where(
-                model.company_id == self.company_id,
-                *extra_conditions,
-            )
-            if salesperson_id and hasattr(model, "salesperson_id"):
-                stmt = stmt.where(model.salesperson_id == salesperson_id)
-            return self._sum(stmt)
-
         target_rows = self.db.execute(
             select(func.coalesce(func.sum(Product.sales_price), 0)).where(Product.company_id == self.company_id)
         ).scalar_one()
@@ -286,7 +295,16 @@ class DashboardService:
                     self._sum_sales(
                         Quotation,
                         Quotation.total_amount,
-                        (Quotation.status.in_([DocumentStatus.DRAFT.value, DocumentStatus.SUBMITTED.value, DocumentStatus.APPROVED.value]),),
+                        (
+                            Quotation.status.in_(
+                                [
+                                    DocumentStatus.DRAFT.value,
+                                    DocumentStatus.SUBMITTED.value,
+                                    DocumentStatus.APPROVED.value,
+                                ]
+                            ),
+                        ),
+                        salesperson_id=salesperson_id,
                     )
                 ),
                 "open_orders": str(
@@ -298,6 +316,7 @@ class DashboardService:
                                 [DocumentStatus.APPROVED.value, DocumentStatus.PARTIALLY_FULFILLED.value]
                             ),
                         ),
+                        salesperson_id=salesperson_id,
                     )
                 ),
                 "deliveries_pending": str(
@@ -305,6 +324,7 @@ class DashboardService:
                         DeliveryNote,
                         DeliveryNote.total_amount,
                         (DeliveryNote.status == DocumentStatus.APPROVED.value,),
+                        salesperson_id=salesperson_id,
                     )
                 ),
                 "pipeline_value": str(money(pipeline[0])),

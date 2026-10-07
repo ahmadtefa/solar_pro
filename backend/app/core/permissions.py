@@ -74,6 +74,7 @@ CATALOGUE: dict[str, dict[str, tuple[str, ...]]] = {
         "attachment": (VIEW, CREATE, EDIT, DELETE, PRINT, EXPORT),
         "backup": (VIEW, CREATE, EXECUTE, DELETE, EXPORT),
         "report": REPORT_ACTIONS,
+        "saved_report": (VIEW, CREATE, EDIT, DELETE, EXPORT),
         "dashboard": (VIEW, EXPORT),
         "search": (VIEW,),
         "import_job": (VIEW, CREATE, EXECUTE, EXPORT, PRINT),
@@ -398,7 +399,8 @@ _ROLE_PATTERNS: dict[str, dict[str, object]] = {
         "data_scope": "specific_branches",
         "level": 8,
         "patterns": [
-            "sales.pos_shift.*", "sales.pos_sale.*", "sales.sales_invoice.create", "sales.sales_invoice.view",
+            "sales.pos_terminal.view", "sales.pos_shift.*", "sales.pos_sale.*", "sales.sales_invoice.create",
+            "sales.sales_invoice.view",
             "sales.sales_invoice.print", "sales.sales_invoice.post", "inventory.product.view",
             "inventory.stock_balance.view", "treasury.cash_account.view",
         ],

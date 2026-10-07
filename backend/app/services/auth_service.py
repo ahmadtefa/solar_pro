@@ -20,6 +20,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.database import is_past, seconds_until, utcnow_naive
 from app.core.enums import AuditAction, NotificationChannel
 from app.core.errors import (
     AccountLockedError,
@@ -82,7 +83,7 @@ class AuthService:
         if user is None:
             self._record_attempt(email=email, success=False, reason="unknown_user", ip_address=ip_address, user_agent=user_agent)
             raise AuthenticationError("Invalid email or password")
-        if user.locked_until and user.locked_until > datetime.now(UTC):
+        if user.locked_until and not is_past(user.locked_until):
             self._record_attempt(
                 email=email, user_id=user.id, success=False, reason="locked", ip_address=ip_address, user_agent=user_agent
             )
@@ -103,7 +104,7 @@ class AuthService:
             if user.failed_login_attempts >= settings.login_max_failed_attempts:
                 from datetime import timedelta
 
-                user.locked_until = datetime.now(UTC) + timedelta(minutes=settings.login_lockout_minutes)
+                user.locked_until = utcnow_naive() + timedelta(minutes=settings.login_lockout_minutes)
             self.db.flush()
             self._record_attempt(
                 email=email, user_id=user.id, success=False, reason="bad_password", ip_address=ip_address, user_agent=user_agent
@@ -200,7 +201,7 @@ class AuthService:
             "refresh_token": refresh_token,
             "token_type": "bearer",
             "expires_at": expires_at,
-            "expires_in": int((expires_at - datetime.now(UTC)).total_seconds()),
+            "expires_in": seconds_until(expires_at),
             "session_id": session.id,
             "company_id": company_id,
             "permissions": permissions.as_sorted_list(),
@@ -226,7 +227,7 @@ class AuthService:
 
         if not session.is_active or session.revoked_at is not None:
             raise AuthenticationError("This session has been revoked")
-        if session.expires_at and session.expires_at < datetime.now(UTC):
+        if session.expires_at and is_past(session.expires_at):
             raise AuthenticationError("Session expired, please sign in again")
 
         user = self.db.get(User, session.user_id)
@@ -255,7 +256,7 @@ class AuthService:
             "refresh_token": new_refresh,
             "token_type": "bearer",
             "expires_at": expires_at,
-            "expires_in": int((expires_at - datetime.now(UTC)).total_seconds()),
+            "expires_in": seconds_until(expires_at),
             "session_id": session.id,
             "company_id": session.company_id,
             "permissions": permissions.as_sorted_list(),
@@ -374,7 +375,7 @@ class AuthService:
         ).scalars().first()
         if record is None or record.used_at is not None:
             raise ValidationFailure("This reset token is invalid or already used")
-        if record.expires_at < datetime.now(UTC):
+        if is_past(record.expires_at):
             raise ValidationFailure("This reset token has expired")
         user = self.db.get(User, record.user_id)
         if user is None:
@@ -441,7 +442,7 @@ class AuthService:
             return False
         if not access.is_active:
             return False
-        if access.expires_at and access.expires_at < datetime.now(UTC):
+        if access.expires_at and is_past(access.expires_at):
             return False
         return True
 

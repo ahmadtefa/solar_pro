@@ -222,6 +222,20 @@ class StockTransferService(BaseDocumentService):
         ]
 
 
+_INCREASE_ALIASES = {"in", "increase", "add", "+", "+1", "up", "gain"}
+_DECREASE_ALIASES = {"out", "decrease", "remove", "-", "-1", "down", "loss", "shrinkage"}
+
+
+def _normalise_direction(value: Any) -> str:
+    """Accept the vocabulary used by the UI as well as the canonical in/out."""
+    text = str(value).strip().lower()
+    if text in _INCREASE_ALIASES:
+        return "in"
+    if text in _DECREASE_ALIASES:
+        return "out"
+    return text
+
+
 class StockAdjustmentService(BaseDocumentService):
     """Increase/decrease stock: opening balances, shrinkage, scrap and issues."""
 
@@ -270,9 +284,12 @@ class StockAdjustmentService(BaseDocumentService):
             if qty <= 0:
                 raise ValidationFailure(f"Line {index}: the quantity must be greater than zero")
             base_quantity = inventory.to_base_quantity(product_id, qty, unit_id)
-            direction = str(raw.get("direction") or default_direction)
+            direction = _normalise_direction(raw.get("direction") or default_direction)
             if direction not in {"in", "out"}:
-                raise ValidationFailure(f"Line {index}: direction must be 'in' or 'out'")
+                raise ValidationFailure(
+                    f"Line {index}: direction must be 'in' or 'out' "
+                    "(aliases: increase/decrease, +1/-1)"
+                )
             if raw.get("unit_cost") is not None:
                 unit_cost = money(raw["unit_cost"])
             elif direction == "in":
